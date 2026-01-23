@@ -46,14 +46,37 @@ except ImportError:
 # CONFIGURATION
 # =============================================================================
 
-AIRTABLE_TOKEN = os.getenv("AIRTABLE_TOKEN")
-BASE_ID = os.getenv("AIRTABLE_BASE_ID", "appOFvKsPdHQQBOQ9")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+def get_secret(key, default=None):
+    """Gets a secret from environment variable OR Streamlit secrets"""
+    # First try environment variable
+    value = os.getenv(key)
+    if value:
+        return value
+    # Then try Streamlit secrets
+    try:
+        if hasattr(st, 'secrets') and key in st.secrets:
+            return st.secrets[key]
+        # Workaround for typo
+        if key == "AIRTABLE_TOKEN" and hasattr(st, 'secrets') and "aAIRTABLE_TOKEN" in st.secrets:
+            return st.secrets["aAIRTABLE_TOKEN"]
+    except:
+        pass
+    return default
 
-HEADERS = {
-    "Authorization": f"Bearer {AIRTABLE_TOKEN}",
-    "Content-Type": "application/json"
-}
+BASE_ID = os.getenv("AIRTABLE_BASE_ID", "appOFvKsPdHQQBOQ9")
+
+def get_headers():
+    """Gets headers with current token - call this at runtime, not import time"""
+    token = get_secret("AIRTABLE_TOKEN")
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+# Legacy - for backwards compatibility
+AIRTABLE_TOKEN = None  # Will be loaded dynamically
+OPENAI_API_KEY = None  # Will be loaded dynamically
+HEADERS = None  # Will be loaded dynamically
 
 TABLES = {
     "Interventions": "tblccYj8xSOtfMAL2",
@@ -119,6 +142,7 @@ def get_all_records(table_id):
     """Holt alle Records einer Tabelle"""
     all_records = []
     offset = None
+    headers = get_headers()  # Get headers at runtime
 
     while True:
         params = {}
@@ -127,7 +151,7 @@ def get_all_records(table_id):
 
         resp = requests.get(
             f"https://api.airtable.com/v0/{BASE_ID}/{table_id}",
-            headers=HEADERS,
+            headers=headers,
             params=params
         )
 
@@ -259,13 +283,14 @@ def find_foods_for_goal(db, health_goal):
 
 def generate_recipe_recommendation(foods, health_goal):
     """Generiert KI-Empfehlung"""
-    if not HAS_OPENAI or not OPENAI_API_KEY:
+    openai_key = get_secret("OPENAI_API_KEY")
+    if not HAS_OPENAI or not openai_key:
         return "OpenAI API Key nicht konfiguriert."
 
     if not foods:
         return f"Keine Foods für '{health_goal}' in der Datenbank gefunden."
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=openai_key)
 
     foods_context = json.dumps(foods[:8], indent=2, ensure_ascii=False)
 
@@ -317,9 +342,10 @@ def find_existing_record(table_id, field_name, value):
 
 def create_record(table_id, fields):
     """Erstellt einen neuen Record"""
+    headers = get_headers()
     resp = requests.post(
         f"https://api.airtable.com/v0/{BASE_ID}/{table_id}",
-        headers=HEADERS,
+        headers=headers,
         json={"fields": fields}
     )
     if resp.status_code == 200:
