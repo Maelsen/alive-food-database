@@ -284,6 +284,278 @@ Erstelle eine Empfehlung mit:
     return response.choices[0].message.content
 
 
+def normalize_name(name):
+    """Normalisiert Namen für Duplikat-Erkennung"""
+    if not name:
+        return ""
+    normalized = name.lower().strip()
+    normalized = normalized.replace('(', ' ').replace(')', ' ')
+    normalized = normalized.replace('-', ' ').replace('_', ' ')
+    normalized = ' '.join(normalized.split())
+    return normalized
+
+
+def find_existing_record(table_id, field_name, value):
+    """Sucht nach existierendem Record"""
+    records = get_all_records(table_id)
+    normalized_value = normalize_name(value)
+
+    for r in records:
+        record_value = r['fields'].get(field_name, '')
+        if normalize_name(record_value) == normalized_value:
+            return r['id']
+    return None
+
+
+def create_record(table_id, fields):
+    """Erstellt einen neuen Record"""
+    resp = requests.post(
+        f"https://api.airtable.com/v0/{BASE_ID}/{table_id}",
+        headers=HEADERS,
+        json={"fields": fields}
+    )
+    if resp.status_code == 200:
+        return resp.json().get('id')
+    return None
+
+
+def get_or_create_intervention(name, category, summary=""):
+    """Holt oder erstellt eine Intervention (Food)"""
+    existing_id = find_existing_record(TABLES["Interventions"], "Name", name)
+    if existing_id:
+        return existing_id, False  # ID, wurde nicht neu erstellt
+
+    fields = {
+        "Name": name,
+        "Type (STRICT)": "Food",
+        "Category": category,
+        "Is plant-based?": True,
+        "Is whole food?": True
+    }
+    if summary:
+        fields["Short summary (human-readable)"] = summary
+
+    new_id = create_record(TABLES["Interventions"], fields)
+    return new_id, True  # ID, wurde neu erstellt
+
+
+def get_or_create_outcome(name, category="General"):
+    """Holt oder erstellt ein Health Outcome"""
+    existing_id = find_existing_record(TABLES["Outcomes"], "Name", name)
+    if existing_id:
+        return existing_id, False
+
+    fields = {
+        "Name": name,
+        "Health Category": category
+    }
+    new_id = create_record(TABLES["Outcomes"], fields)
+    return new_id, True
+
+
+def get_or_create_nutrient(name, unit="g"):
+    """Holt oder erstellt einen Nutrient"""
+    existing_id = find_existing_record(TABLES["Nutrients"], "Name", name)
+    if existing_id:
+        return existing_id, False
+
+    # Kategorie basierend auf Name
+    category = "Other"
+    name_lower = name.lower()
+    if any(v in name_lower for v in ['vitamin', 'folate', 'niacin', 'riboflavin', 'thiamin']):
+        category = "Micronutrient"
+    elif any(m in name_lower for m in ['calcium', 'iron', 'magnesium', 'potassium', 'zinc', 'sodium']):
+        category = "Micronutrient"
+    elif any(p in name_lower for p in ['protein', 'carbohydrate', 'fat', 'fiber']):
+        category = "Macronutrient"
+    elif any(ph in name_lower for ph in ['polyphenol', 'anthocyanin', 'flavonoid', 'carotenoid']):
+        category = "Phytonutrient"
+
+    fields = {
+        "Name": name,
+        "Category": category,
+        "Unit": unit
+    }
+    new_id = create_record(TABLES["Nutrients"], fields)
+    return new_id, True
+
+
+def create_source(title, source_type="Study"):
+    """Erstellt eine neue Source"""
+    existing_id = find_existing_record(TABLES["Sources"], "Title", title)
+    if existing_id:
+        return existing_id, False
+
+    fields = {
+        "Title": title,
+        "Source Type": source_type
+    }
+    new_id = create_record(TABLES["Sources"], fields)
+    return new_id, True
+
+
+def create_claim(intervention_id, outcome_ids, claim_text, evidence="Moderate", source_id=None):
+    """Erstellt einen neuen Claim"""
+    fields = {
+        "Intervention": [intervention_id],
+        "Health Outcome": outcome_ids,
+        "Claim Text": claim_text,
+        "Evidence Strength": evidence
+    }
+    if source_id:
+        fields["Source"] = [source_id]
+
+    return create_record(TABLES["Claims"], fields)
+
+
+def create_food_nutrient_profile(food_id, nutrient_id, amount_per_100g, unit="g"):
+    """Erstellt ein Food-Nutrient Profile"""
+    # Prüfe ob schon existiert
+    profiles = get_all_records(TABLES["Food-Nutrient Profile"])
+    for p in profiles:
+        food_links = p['fields'].get('Food', [])
+        nutrient_links = p['fields'].get('Nutrient', [])
+        if food_links and nutrient_links:
+            if food_links[0] == food_id and nutrient_links[0] == nutrient_id:
+                return p['id'], False  # Existiert bereits
+
+    fields = {
+        "Food": [food_id],
+        "Nutrient": [nutrient_id],
+        "Amount per 100g": amount_per_100g
+    }
+    new_id = create_record(TABLES["Food-Nutrient Profile"], fields)
+    return new_id, True
+
+
+def save_to_airtable(extracted_data):
+    """Speichert extrahierte Daten in Airtable"""
+    stats = {
+        "sources_created": 0,
+        "foods_created": 0,
+        "foods_existing": 0,
+        "outcomes_created": 0,
+        "claims_created": 0,
+        "nutrients_created": 0,
+        "profiles_created": 0,
+        "errors": []
+    }
+
+    # 1. Source erstellen
+    source_id = None
+    source_title = extracted_data.get('source_title', 'Unknown Source')
+    source_type = extracted_data.get('source_type', 'Study')
+
+    try:
+        source_id, created = create_source(source_title, source_type)
+        if created:
+            stats["sources_created"] += 1
+    except Exception as e:
+        stats["errors"].append(f"Source error: {str(e)}")
+
+    # 2. Foods erstellen und IDs merken
+    food_ids = {}  # name -> id mapping
+    for food in extracted_data.get('foods', []):
+        try:
+            food_name = food.get('name', '')
+            if not food_name:
+                continue
+
+            food_id, created = get_or_create_intervention(
+                name=food_name,
+                category=food.get('category', 'Other'),
+                summary=food.get('summary', '')
+            )
+
+            if food_id:
+                food_ids[food_name.lower()] = food_id
+                if created:
+                    stats["foods_created"] += 1
+                else:
+                    stats["foods_existing"] += 1
+        except Exception as e:
+            stats["errors"].append(f"Food error ({food_name}): {str(e)}")
+
+    # 3. Claims erstellen
+    for claim in extracted_data.get('claims', []):
+        try:
+            food_name = claim.get('food_name', '')
+            food_id = food_ids.get(food_name.lower())
+
+            if not food_id:
+                # Versuche Food zu finden/erstellen
+                food_id, created = get_or_create_intervention(food_name, "Other")
+                if food_id:
+                    food_ids[food_name.lower()] = food_id
+                    if created:
+                        stats["foods_created"] += 1
+
+            if not food_id:
+                continue
+
+            # Outcomes erstellen
+            outcome_ids = []
+            for outcome_name in claim.get('health_outcomes', []):
+                outcome_id, created = get_or_create_outcome(outcome_name)
+                if outcome_id:
+                    outcome_ids.append(outcome_id)
+                    if created:
+                        stats["outcomes_created"] += 1
+
+            if outcome_ids:
+                claim_id = create_claim(
+                    intervention_id=food_id,
+                    outcome_ids=outcome_ids,
+                    claim_text=claim.get('claim_text', ''),
+                    evidence=claim.get('evidence_strength', 'Moderate'),
+                    source_id=source_id
+                )
+                if claim_id:
+                    stats["claims_created"] += 1
+        except Exception as e:
+            stats["errors"].append(f"Claim error: {str(e)}")
+
+    # 4. Nutrient Data erstellen
+    for nutrient_set in extracted_data.get('nutrient_data', []):
+        try:
+            food_name = nutrient_set.get('food_name', '')
+            food_id = food_ids.get(food_name.lower())
+
+            if not food_id:
+                food_id, created = get_or_create_intervention(food_name, "Other")
+                if food_id:
+                    food_ids[food_name.lower()] = food_id
+
+            if not food_id:
+                continue
+
+            for nutrient in nutrient_set.get('nutrients', []):
+                nutrient_name = nutrient.get('name', '')
+                if not nutrient_name:
+                    continue
+
+                nutrient_id, created = get_or_create_nutrient(
+                    nutrient_name,
+                    nutrient.get('unit', 'g')
+                )
+                if created:
+                    stats["nutrients_created"] += 1
+
+                if nutrient_id:
+                    profile_id, created = create_food_nutrient_profile(
+                        food_id,
+                        nutrient_id,
+                        nutrient.get('amount_per_100g', 0),
+                        nutrient.get('unit', 'g')
+                    )
+                    if created:
+                        stats["profiles_created"] += 1
+        except Exception as e:
+            stats["errors"].append(f"Nutrient error: {str(e)}")
+
+    return stats
+
+
 def process_pdf_with_ai(text, model="gpt-4o-mini"):
     """Verarbeitet Text mit KI"""
     if not HAS_OPENAI or not OPENAI_API_KEY:
@@ -506,6 +778,9 @@ elif page == "📄 PDF hochladen":
                         for claim in result['claims']:
                             st.write(f"- {claim.get('food_name')}: {claim.get('claim_text', '')[:100]}...")
 
+                    # In Session speichern für Import
+                    st.session_state['extracted_data'] = result
+
                     # JSON Download
                     st.download_button(
                         "📥 Ergebnis als JSON herunterladen",
@@ -514,7 +789,45 @@ elif page == "📄 PDF hochladen":
                         mime="application/json"
                     )
 
-                    st.info("💡 Die Daten können jetzt in Airtable importiert werden.")
+                    st.divider()
+
+                    # AIRTABLE IMPORT BUTTON
+                    st.subheader("💾 In Airtable speichern")
+                    st.markdown("Klicke um die extrahierten Daten direkt in die Airtable-Datenbank zu importieren.")
+
+                    if st.button("🚀 Jetzt in Airtable speichern", type="primary"):
+                        with st.spinner("Speichere in Airtable..."):
+                            import_stats = save_to_airtable(result)
+
+                        # Ergebnis anzeigen
+                        if import_stats["errors"]:
+                            st.warning(f"Import mit {len(import_stats['errors'])} Fehlern abgeschlossen")
+                        else:
+                            st.success("✅ Import erfolgreich!")
+
+                        # Stats anzeigen
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Sources", import_stats["sources_created"], delta="neu")
+                        with col2:
+                            foods_new = import_stats["foods_created"]
+                            foods_exist = import_stats["foods_existing"]
+                            st.metric("Foods", f"{foods_new} neu", delta=f"{foods_exist} existierten")
+                        with col3:
+                            st.metric("Claims", import_stats["claims_created"], delta="neu")
+                        with col4:
+                            st.metric("Nutrients", import_stats["nutrients_created"], delta="neu")
+
+                        if import_stats["profiles_created"]:
+                            st.info(f"📊 {import_stats['profiles_created']} Nutrient-Profile erstellt")
+
+                        if import_stats["errors"]:
+                            with st.expander("⚠️ Fehler anzeigen"):
+                                for err in import_stats["errors"]:
+                                    st.error(err)
+
+                        st.balloons()
+                        st.success("🎉 Daten wurden in Airtable gespeichert! Du kannst die Datenbank jetzt ansehen.")
                 else:
                     st.error("Fehler bei der Analyse. Bitte später erneut versuchen.")
 
