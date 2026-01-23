@@ -1,0 +1,61 @@
+Sample Nutritional Study Data - Berries and Brain Health
+
+This is a test document for the Alive Food Database data extraction engine.
+
+BLUEBERRIES (Heidelbeeren)
+==========================
+Category: Fruit
+Serving size: 1 cup (148g)
+
+Nutritional Profile per 100g:
+- Carbohydrates: 14.5g
+- Fiber: 2.4g
+- Protein: 0.7g
+- Vitamin C: 9.7mg
+- Vitamin K: 19.3mcg
+- Manganese: 0.34mg
+
+Health Benefits:
+Blueberries are rich in anthocyanins, powerful antioxidants that give them their blue color.
+Studies show regular consumption may improve memory and cognitive function in older adults.
+The polyphenol content (estimated 550mg per 100g) supports cardiovascular health.
+
+WALNUTS (Walnüsse)
+==================
+Category: Nuts & seeds
+Serving size: 1 oz (28g)
+
+Nutritional Profile per 100g:
+- Protein: 15.2g
+- Fat: 65.2g
+- Carbohydrates: 13.7g
+- Fiber: 6.7g
+- Omega-3 (ALA): 9.1g
+- Magnesium: 158mg
+- Phosphorus: 346mg
+- Vitamin E: 0.7mg
+
+Health Benefits:
+Walnuts contain the highest amount of omega-3 fatty acids among nuts.
+Research links walnut consumption to improved brain health and reduced inflammation.
+The combination of healthy fats, fiber, and antioxidants supports heart health.
+
+TURMERIC (Kurkuma)
+==================
+Category: Herbs & spices
+Serving size: 1 teaspoon (3g)
+
+Nutritional Profile per 100g:
+- Carbohydrates: 64.9g
+- Fiber: 21g
+- Protein: 7.8g
+- Iron: 41.4mg
+- Manganese: 7.8mg
+- Curcumin (active compound): ~3g
+
+Health Benefits:
+Turmeric contains curcumin, a compound with powerful anti-inflammatory properties.
+Studies suggest it may help with joint pain, digestive issues, and cognitive function.
+Absorption is greatly enhanced when consumed with black pepper (piperine).
+
+Source: Compiled from various nutritional databases and research studies, 2024.
