@@ -860,26 +860,46 @@ class DataImporter:
                 "Nutrient": [nutrient_id],
             }
 
-            # Amount per 100g
+            # Amount per 100g - sauber gerundet
             if nutrient_data.get('amount_per_100g') is not None:
-                profile_fields['Amount per 100g'] = float(nutrient_data['amount_per_100g'])
+                amount_100g = float(nutrient_data['amount_per_100g'])
+                # Runde intelligent: ganze Zahlen fuer grosse Werte, 1 Dezimale fuer kleine
+                if amount_100g >= 10:
+                    profile_fields['Amount per 100g'] = round(amount_100g)
+                else:
+                    profile_fields['Amount per 100g'] = round(amount_100g, 1)
 
             # Serving Size (aus nutrient_set, nicht nutrient_data)
             serving_size = nutrient_set.get('serving_size', '')
             serving_grams = nutrient_set.get('serving_size_grams', 0)
 
+            # Serving Size mit Gramm-Angabe wenn nicht vorhanden
             if serving_size:
-                profile_fields['Serving Size'] = serving_size
-            if serving_grams and serving_grams > 0:
-                profile_fields['Serving Size Grams'] = float(serving_grams)
+                # Fuege Gramm hinzu wenn nicht schon enthalten
+                if serving_grams and 'g' not in serving_size.lower():
+                    profile_fields['Serving Size'] = f"{serving_size} ({int(serving_grams)}g)"
+                else:
+                    profile_fields['Serving Size'] = serving_size
+            elif serving_grams:
+                profile_fields['Serving Size'] = f"{int(serving_grams)}g"
 
-            # Amount per Serving (berechnen oder aus Daten)
+            if serving_grams and serving_grams > 0:
+                profile_fields['Serving Size Grams'] = int(serving_grams)
+
+            # Amount per Serving (berechnen oder aus Daten) - sauber gerundet
             if nutrient_data.get('amount_per_serving') is not None:
-                profile_fields['Amount per Serving'] = float(nutrient_data['amount_per_serving'])
+                amount_serving = float(nutrient_data['amount_per_serving'])
+                if amount_serving >= 10:
+                    profile_fields['Amount per Serving'] = round(amount_serving)
+                else:
+                    profile_fields['Amount per Serving'] = round(amount_serving, 1)
             elif nutrient_data.get('amount_per_100g') and serving_grams:
                 # Berechne Amount per Serving
                 amount_per_serving = (float(nutrient_data['amount_per_100g']) * float(serving_grams)) / 100
-                profile_fields['Amount per Serving'] = round(amount_per_serving, 2)
+                if amount_per_serving >= 10:
+                    profile_fields['Amount per Serving'] = round(amount_per_serving)
+                else:
+                    profile_fields['Amount per Serving'] = round(amount_per_serving, 1)
 
             # Confidence Level
             if nutrient_data.get('confidence'):
