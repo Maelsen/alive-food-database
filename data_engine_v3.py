@@ -29,12 +29,29 @@ except ImportError:
     HAS_OPENAI = False
 
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION - Supports both environment variables AND Streamlit secrets
 # =============================================================================
 
-AIRTABLE_TOKEN = os.getenv("AIRTABLE_TOKEN")
-BASE_ID = os.getenv("AIRTABLE_BASE_ID", "appOFvKsPdHQQBOQ9")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+def get_secret(key, default=None):
+    """Gets a secret from environment variable OR Streamlit secrets"""
+    # First try environment variable
+    value = os.getenv(key)
+    if value:
+        return value
+
+    # Then try Streamlit secrets (for Streamlit Cloud deployment)
+    try:
+        import streamlit as st
+        if hasattr(st, 'secrets') and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+
+    return default
+
+AIRTABLE_TOKEN = get_secret("AIRTABLE_TOKEN")
+BASE_ID = get_secret("AIRTABLE_BASE_ID", "appOFvKsPdHQQBOQ9")
+OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
 
 HEADERS = {
     "Authorization": f"Bearer {AIRTABLE_TOKEN}",
@@ -82,6 +99,17 @@ def get_all_records(table_id: str) -> List[Dict]:
     all_records = []
     offset = None
 
+    # Refresh headers in case token was loaded later (Streamlit secrets)
+    current_token = get_secret("AIRTABLE_TOKEN")
+    current_headers = {
+        "Authorization": f"Bearer {current_token}",
+        "Content-Type": "application/json"
+    }
+
+    if not current_token:
+        print("ERROR: AIRTABLE_TOKEN is not set!")
+        return []
+
     while True:
         params = {}
         if offset:
@@ -89,12 +117,12 @@ def get_all_records(table_id: str) -> List[Dict]:
 
         resp = requests.get(
             f"https://api.airtable.com/v0/{BASE_ID}/{table_id}",
-            headers=HEADERS,
+            headers=current_headers,
             params=params
         )
 
         if resp.status_code != 200:
-            print(f"Error fetching records: {resp.status_code}")
+            print(f"Error fetching records: {resp.status_code} - {resp.text[:200]}")
             break
 
         data = resp.json()
@@ -109,26 +137,53 @@ def get_all_records(table_id: str) -> List[Dict]:
 
 def create_record(table_id: str, fields: Dict) -> Optional[str]:
     """Erstellt einen neuen Record und gibt die ID zurueck"""
+    # Refresh headers in case token was loaded later (Streamlit secrets)
+    current_token = get_secret("AIRTABLE_TOKEN")
+    current_headers = {
+        "Authorization": f"Bearer {current_token}",
+        "Content-Type": "application/json"
+    }
+
+    if not current_token:
+        print("ERROR: AIRTABLE_TOKEN is not set!")
+        return None
+
     resp = requests.post(
         f"https://api.airtable.com/v0/{BASE_ID}/{table_id}",
-        headers=HEADERS,
+        headers=current_headers,
         json={"fields": fields}
     )
 
     if resp.status_code == 200:
         return resp.json().get('id')
     else:
-        print(f"Error creating record: {resp.status_code} - {resp.text[:200]}")
+        error_msg = f"API Error {resp.status_code}: {resp.text[:300]}"
+        print(error_msg)
         return None
 
 
 def update_record(table_id: str, record_id: str, fields: Dict) -> bool:
     """Aktualisiert einen bestehenden Record"""
+    # Refresh headers in case token was loaded later (Streamlit secrets)
+    current_token = get_secret("AIRTABLE_TOKEN")
+    current_headers = {
+        "Authorization": f"Bearer {current_token}",
+        "Content-Type": "application/json"
+    }
+
+    if not current_token:
+        print("ERROR: AIRTABLE_TOKEN is not set!")
+        return False
+
     resp = requests.patch(
         f"https://api.airtable.com/v0/{BASE_ID}/{table_id}/{record_id}",
-        headers=HEADERS,
+        headers=current_headers,
         json={"fields": fields}
     )
+
+    if resp.status_code != 200:
+        print(f"Update error: {resp.status_code} - {resp.text[:200]}")
+
     return resp.status_code == 200
 
 
