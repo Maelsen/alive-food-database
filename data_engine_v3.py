@@ -425,6 +425,7 @@ class DataImporter:
             "errors": []
         }
         self.source_id = None
+        self.source_title = None  # Titel der Source fuer Referenzen
         self.food_ids = {}  # name -> id
         self.outcome_ids = {}  # name -> id
         self.nutrient_ids = {}  # name -> id
@@ -474,6 +475,7 @@ class DataImporter:
         if normalized in self.cache.sources:
             existing = self.cache.sources[normalized]
             self.source_id = existing['id']
+            self.source_title = title
             print(f"  -> Existiert bereits (ID: {self.source_id[:10]}...)")
 
             # Aktualisiere fehlende Felder
@@ -519,6 +521,7 @@ class DataImporter:
 
         self.source_id = create_record(TABLES["Sources"], fields)
         if self.source_id:
+            self.source_title = title
             self.stats["sources_created"] += 1
             self.cache.sources[normalized] = {'id': self.source_id, 'fields': fields}
             print(f"  -> NEU erstellt (ID: {self.source_id[:10]}...)")
@@ -931,9 +934,9 @@ class DataImporter:
             if nutrient_data.get('confidence'):
                 profile_fields['Confidence Level'] = self._validate_option(nutrient_data['confidence'], 'confidence')
 
-            # Source Reference
-            if self.source_id:
-                profile_fields['Source Reference'] = f"Source ID: {self.source_id}"
+            # Source Reference - Titel der Quelle statt ID
+            if self.source_title:
+                profile_fields['Source Reference'] = self.source_title
 
             profile_id = create_record(TABLES["Food-Nutrient Profile"], profile_fields)
             if profile_id:
