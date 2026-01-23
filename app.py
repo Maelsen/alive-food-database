@@ -1,9 +1,9 @@
 """
 Alive Food Database - Web Interface
 ====================================
-Einfache Web-Oberfläche für Matthias zum Testen.
+Simple web interface for testing.
 
-Starten mit: streamlit run app.py
+Start with: streamlit run app.py
 """
 
 import streamlit as st
@@ -105,7 +105,7 @@ st.set_page_config(
 CORRECT_PASSWORD = "AliveFoodDB2026!"
 
 def check_password():
-    """Einfache Passwort-Abfrage"""
+    """Simple password check"""
 
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
@@ -114,19 +114,19 @@ def check_password():
         return True
 
     st.title("🔐 Login")
-    st.markdown("Bitte Passwort eingeben um fortzufahren.")
+    st.markdown("Please enter password to continue.")
 
-    password = st.text_input("Passwort:", type="password")
+    password = st.text_input("Password:", type="password")
 
-    if st.button("Einloggen", type="primary"):
+    if st.button("Log in", type="primary"):
         if password == CORRECT_PASSWORD:
             st.session_state.authenticated = True
             st.rerun()
         else:
-            st.error("❌ Falsches Passwort!")
+            st.error("❌ Wrong password!")
 
     st.markdown("---")
-    st.markdown("*Passwort vergessen? Kontaktiere den Administrator.*")
+    st.markdown("")
 
     return False
 
@@ -282,13 +282,13 @@ def find_foods_for_goal(db, health_goal):
 
 
 def generate_recipe_recommendation(foods, health_goal):
-    """Generiert KI-Empfehlung"""
+    """Generates AI recommendation"""
     openai_key = get_secret("OPENAI_API_KEY")
     if not HAS_OPENAI or not openai_key:
-        return "OpenAI API Key nicht konfiguriert."
+        return "OpenAI API Key not configured."
 
     if not foods:
-        return f"Keine Foods für '{health_goal}' in der Datenbank gefunden."
+        return f"No foods found for '{health_goal}' in the database."
 
     client = OpenAI(api_key=openai_key)
 
@@ -297,19 +297,19 @@ def generate_recipe_recommendation(foods, health_goal):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": """Du bist ein Ernährungsberater für ein Restaurant.
-Basierend auf der Datenbank, empfiehlst du Zutaten für ein Gericht.
-Antworte auf Deutsch, praktisch und kulinarisch inspirierend.
-Nenne konkrete Portionsgrößen und warum jede Zutat gut ist."""},
-            {"role": "user", "content": f"""Der Gast möchte ein Gericht für: {health_goal}
+            {"role": "system", "content": """You are a nutritionist for a restaurant.
+Based on the database, you recommend ingredients for a dish.
+Answer in English, practical and culinarily inspiring.
+Mention specific portion sizes and why each ingredient is beneficial."""},
+            {"role": "user", "content": f"""The guest wants a dish for: {health_goal}
 
-Verfügbare Zutaten aus unserer Datenbank:
+Available ingredients from our database:
 {foods_context}
 
-Erstelle eine Empfehlung mit:
-1. Top 3-5 empfohlene Zutaten mit Begründung
-2. Eine konkrete Gerichtidee
-3. Nährstoff-Highlights"""}
+Create a recommendation with:
+1. Top 3-5 recommended ingredients with reasoning
+2. A concrete dish idea
+3. Nutrient highlights"""}
         ],
         temperature=0.7
     )
@@ -654,38 +654,38 @@ TEXT ZUM ANALYSIEREN:
 # =============================================================================
 
 st.title("🥗 Alive Food Database")
-st.markdown("*Data Engine für Health Claims und Nährstoffdaten*")
+st.markdown("*Data Engine for Health Claims and Nutrient Data*")
 
 # Sidebar
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Wähle eine Funktion:", [
-    "🔍 KI Query",
-    "📄 PDF hochladen"
+page = st.sidebar.radio("Select a function:", [
+    "🔍 AI Query",
+    "📄 Upload PDF"
 ])
 
 # =============================================================================
 # PAGE: KI QUERY
 # =============================================================================
 
-if page == "🔍 KI Query":
-    st.header("🔍 Gesundheitsziel → Zutaten")
-    st.markdown("Gib ein Gesundheitsziel ein und bekomme passende Zutaten empfohlen.")
+if page == "🔍 AI Query":
+    st.header("🔍 Health Goal → Ingredients")
+    st.markdown("Enter a health goal and get matching ingredients recommended.")
 
     col1, col2 = st.columns([3, 1])
 
     with col1:
         health_goal = st.text_input(
-            "Gesundheitsziel eingeben:",
-            placeholder="z.B. Gut Health, Heart Health, Brain Health..."
+            "Enter health goal:",
+            placeholder="e.g. Gut Health, Heart Health, Brain Health..."
         )
 
     with col2:
         st.write("")
         st.write("")
-        search_button = st.button("🔍 Suchen", type="primary")
+        search_button = st.button("🔍 Search", type="primary")
 
     # Quick buttons
-    st.markdown("**Schnellauswahl:**")
+    st.markdown("**Quick selection:**")
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
@@ -706,59 +706,59 @@ if page == "🔍 KI Query":
             search_button = True
 
     if search_button and health_goal:
-        with st.spinner("Lade Datenbank..."):
+        with st.spinner("Loading database..."):
             db = load_database()
 
-        with st.spinner(f"Suche nach '{health_goal}'..."):
+        with st.spinner(f"Searching for '{health_goal}'..."):
             foods = find_foods_for_goal(db, health_goal)
 
         if foods:
-            st.success(f"✅ {len(foods)} passende Zutaten gefunden!")
+            st.success(f"✅ {len(foods)} matching ingredients found!")
 
-            # Zeige gefundene Foods
-            st.subheader("📋 Gefundene Zutaten:")
+            # Show found foods
+            st.subheader("📋 Found Ingredients:")
             for i, food in enumerate(foods[:5], 1):
                 with st.expander(f"{i}. {food['name']} ({food['category']})"):
-                    st.write(f"**Zusammenfassung:** {food['summary']}")
-                    st.write(f"**Portion:** {food['serving']}")
+                    st.write(f"**Summary:** {food['summary']}")
+                    st.write(f"**Serving:** {food['serving']}")
                     st.write(f"**Claim:** {food['claim']}")
-                    st.write(f"**Evidenz:** {food['evidence']}")
+                    st.write(f"**Evidence:** {food['evidence']}")
                     if food['nutrients']:
-                        st.write("**Nährstoffe (pro 100g):**")
+                        st.write("**Nutrients (per 100g):**")
                         for n in food['nutrients']:
                             st.write(f"- {n['name']}: {n['amount']} {n['unit']}")
 
-            # KI Empfehlung
-            st.subheader("🤖 KI Rezept-Empfehlung:")
-            with st.spinner("Generiere Empfehlung..."):
+            # AI Recommendation
+            st.subheader("🤖 AI Recipe Recommendation:")
+            with st.spinner("Generating recommendation..."):
                 recommendation = generate_recipe_recommendation(foods, health_goal)
             st.markdown(recommendation)
         else:
-            st.warning(f"Keine Zutaten für '{health_goal}' gefunden. Versuche einen anderen Begriff.")
+            st.warning(f"No ingredients found for '{health_goal}'. Try a different term.")
 
 # =============================================================================
 # PAGE: PDF UPLOAD
 # =============================================================================
 
-elif page == "📄 PDF hochladen":
-    st.header("📄 PDF/Studie verarbeiten")
-    st.markdown("Lade eine PDF oder Textdatei hoch und die KI extrahiert automatisch alle Health Claims und Nährstoffdaten.")
+elif page == "📄 Upload PDF":
+    st.header("📄 Process PDF/Study")
+    st.markdown("Upload a PDF or text file and the AI will automatically extract all health claims and nutrient data.")
 
     uploaded_file = st.file_uploader(
-        "Datei hochladen (PDF oder TXT):",
+        "Upload file (PDF or TXT):",
         type=["pdf", "txt"],
-        help="Die KI analysiert die Datei und extrahiert Foods, Health Claims und Nährstoffdaten."
+        help="The AI analyzes the file and extracts foods, health claims and nutrient data."
     )
 
     if uploaded_file:
-        st.info(f"📁 Datei: {uploaded_file.name} ({uploaded_file.size / 1024:.1f} KB)")
+        st.info(f"📁 File: {uploaded_file.name} ({uploaded_file.size / 1024:.1f} KB)")
 
         # Text extrahieren
         text = ""
 
         if uploaded_file.name.endswith('.pdf'):
             if not HAS_PDF:
-                st.error("PDF-Support nicht installiert. Bitte pdfplumber installieren.")
+                st.error("PDF support not installed. Please install pdfplumber.")
             else:
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
                     tmp.write(uploaded_file.getvalue())
@@ -775,10 +775,10 @@ elif page == "📄 PDF hochladen":
             text = uploaded_file.getvalue().decode('utf-8')
 
         if text:
-            st.success(f"✅ {len(text)} Zeichen extrahiert")
+            st.success(f"✅ {len(text)} characters extracted")
 
-            # Vorschau
-            with st.expander("📖 Text-Vorschau"):
+            # Preview
+            with st.expander("📖 Text Preview"):
                 st.text(text[:2000] + "..." if len(text) > 2000 else text)
 
             # ================================================================
@@ -786,10 +786,10 @@ elif page == "📄 PDF hochladen":
             # ================================================================
 
             if not HAS_ENGINE_V3:
-                st.error("❌ Data Engine v3 nicht verfuegbar. Bitte data_engine_v3.py installieren.")
+                st.error("❌ Data Engine v3 not available. Please install data_engine_v3.py.")
             else:
-                # Verarbeiten und Importieren in einem Schritt!
-                if st.button("🚀 Analysieren & in Airtable importieren", type="primary"):
+                # Process and import in one step!
+                if st.button("🚀 Analyze & import to Airtable", type="primary"):
                     progress_container = st.empty()
                     status_container = st.container()
 
@@ -797,60 +797,60 @@ elif page == "📄 PDF hochladen":
                         progress_container.info(f"⏳ {message}")
 
                     try:
-                        # Alles in einem Durchgang: Extrahieren + Importieren
-                        update_progress("Lade Datenbank-Cache...")
+                        # Everything in one pass: Extract + Import
+                        update_progress("Loading database cache...")
                         time.sleep(0.5)
 
-                        update_progress("Extrahiere Daten mit KI (30-60 Sek.)...")
+                        update_progress("Extracting data with AI (30-60 sec)...")
                         result = process_and_import(text, progress_callback=update_progress)
 
                         progress_container.empty()
 
                         if "error" in result:
-                            st.error(f"❌ Fehler: {result['error']}")
+                            st.error(f"❌ Error: {result['error']}")
                         else:
-                            st.success("✅ Analyse und Import abgeschlossen!")
+                            st.success("✅ Analysis and import completed!")
 
-                            # Extrahierte Daten anzeigen
+                            # Show extracted data
                             extracted = result.get('extracted_data', {})
 
-                            st.subheader("📊 Was wurde extrahiert und importiert:")
+                            st.subheader("📊 What was extracted and imported:")
 
-                            # Statistiken
+                            # Statistics
                             col1, col2, col3, col4 = st.columns(4)
                             with col1:
-                                sources_info = f"{result.get('sources_created', 0)} neu"
+                                sources_info = f"{result.get('sources_created', 0)} new"
                                 if result.get('sources_updated', 0):
-                                    sources_info += f", {result['sources_updated']} aktualisiert"
+                                    sources_info += f", {result['sources_updated']} updated"
                                 st.metric("📚 Sources", sources_info)
                             with col2:
-                                foods_info = f"{result.get('interventions_created', 0)} neu"
+                                foods_info = f"{result.get('interventions_created', 0)} new"
                                 if result.get('interventions_updated', 0):
-                                    foods_info += f", {result['interventions_updated']} erw."
+                                    foods_info += f", {result['interventions_updated']} upd."
                                 st.metric("🥗 Foods", foods_info)
                             with col3:
                                 st.metric("🎯 Claims", result.get('claims_created', 0))
                             with col4:
                                 st.metric("🔬 Nutrients", result.get('nutrients_created', 0))
 
-                            # Zweite Zeile
+                            # Second row
                             col1, col2, col3, col4 = st.columns(4)
                             with col1:
                                 st.metric("💊 Outcomes", result.get('outcomes_created', 0))
                             with col2:
                                 st.metric("📈 Profiles", result.get('profiles_created', 0))
 
-                            # Details anzeigen
+                            # Show details
                             st.divider()
 
                             # Source Details
                             if extracted.get('source'):
                                 with st.expander("📚 Source Details", expanded=True):
                                     src = extracted['source']
-                                    st.write(f"**Titel:** {src.get('title', 'N/A')}")
-                                    st.write(f"**Typ:** {src.get('type', 'N/A')}")
-                                    st.write(f"**Autoren:** {src.get('authors', 'N/A')}")
-                                    st.write(f"**Jahr:** {src.get('year', 'N/A')}")
+                                    st.write(f"**Title:** {src.get('title', 'N/A')}")
+                                    st.write(f"**Type:** {src.get('type', 'N/A')}")
+                                    st.write(f"**Authors:** {src.get('authors', 'N/A')}")
+                                    st.write(f"**Year:** {src.get('year', 'N/A')}")
                                     st.write(f"**Journal:** {src.get('journal', 'N/A')}")
 
                             # Foods Details
@@ -861,7 +861,7 @@ elif page == "📄 PDF hochladen":
                                         if food.get('summary'):
                                             st.write(f"  {food['summary'][:200]}...")
                                         if food.get('example_serving'):
-                                            st.write(f"  📏 Portion: {food['example_serving']}")
+                                            st.write(f"  📏 Serving: {food['example_serving']}")
                                         st.write("")
 
                             # Claims Details
@@ -870,7 +870,7 @@ elif page == "📄 PDF hochladen":
                                     for claim in extracted['claims']:
                                         st.markdown(f"**{claim.get('food_name')}** → {', '.join(claim.get('outcome_names', []))}")
                                         st.write(f"  \"{claim.get('claim_text', '')[:150]}...\"")
-                                        st.write(f"  📊 Evidenz: {claim.get('evidence_strength', 'N/A')}")
+                                        st.write(f"  📊 Evidence: {claim.get('evidence_strength', 'N/A')}")
                                         st.write("")
 
                             # Nutrients Details
@@ -881,28 +881,28 @@ elif page == "📄 PDF hochladen":
                                         for n in ns.get('nutrients', []):
                                             st.write(f"  - {n.get('name')}: {n.get('amount_per_100g')} {n.get('unit', 'g')}/100g")
 
-                            # Fehler anzeigen wenn vorhanden
+                            # Show errors if any
                             if result.get('errors'):
-                                with st.expander(f"⚠️ Warnungen ({len(result['errors'])})", expanded=False):
+                                with st.expander(f"⚠️ Warnings ({len(result['errors'])})", expanded=False):
                                     for err in result['errors']:
                                         st.warning(err)
 
                             # JSON Download
                             st.divider()
                             st.download_button(
-                                "📥 Komplettes Ergebnis als JSON",
+                                "📥 Complete result as JSON",
                                 data=json.dumps(result, indent=2, ensure_ascii=False, default=str),
                                 file_name=f"import_result_{uploaded_file.name}.json",
                                 mime="application/json"
                             )
 
-                            st.success("🎉 Die Datenbank wurde erweitert! Alle Verknuepfungen wurden automatisch erstellt.")
+                            st.success("🎉 The database has been expanded! All links were created automatically.")
 
                     except Exception as e:
                         progress_container.empty()
-                        st.error(f"❌ Kritischer Fehler: {str(e)}")
+                        st.error(f"❌ Critical error: {str(e)}")
                         import traceback
-                        with st.expander("Fehler-Details"):
+                        with st.expander("Error details"):
                             st.code(traceback.format_exc())
 
 # =============================================================================
@@ -912,4 +912,4 @@ elif page == "📄 PDF hochladen":
 st.divider()
 st.markdown("---")
 st.markdown("*Alive Food Database - Data Engine v2.0*")
-st.markdown(f"[📊 Airtable öffnen](https://airtable.com/{BASE_ID})")
+st.markdown(f"[📊 Open Airtable](https://airtable.com/{BASE_ID})")
