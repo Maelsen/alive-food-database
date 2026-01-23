@@ -11,6 +11,7 @@ import os
 import json
 import requests
 import tempfile
+import time
 from pathlib import Path
 
 # .env laden
@@ -33,6 +34,13 @@ try:
     HAS_PDF = True
 except ImportError:
     HAS_PDF = False
+
+# Data Engine v3 - Neue intelligente Import-Engine
+try:
+    from data_engine_v3 import process_and_import, DatabaseCache, extract_with_ai
+    HAS_ENGINE_V3 = True
+except ImportError:
+    HAS_ENGINE_V3 = False
 
 # =============================================================================
 # CONFIGURATION
@@ -748,98 +756,130 @@ elif page == "📄 PDF hochladen":
             with st.expander("📖 Text-Vorschau"):
                 st.text(text[:2000] + "..." if len(text) > 2000 else text)
 
-            # Verarbeiten Button
-            if st.button("🚀 Mit KI verarbeiten", type="primary"):
-                with st.spinner("KI analysiert... (kann 30-60 Sekunden dauern)"):
-                    result = process_pdf_with_ai(text)
+            # ================================================================
+            # NEUE DATA ENGINE V3 - Intelligenter Import
+            # ================================================================
 
-                if result:
-                    st.success("✅ Analyse abgeschlossen!")
+            if not HAS_ENGINE_V3:
+                st.error("❌ Data Engine v3 nicht verfuegbar. Bitte data_engine_v3.py installieren.")
+            else:
+                # Verarbeiten und Importieren in einem Schritt!
+                if st.button("🚀 Analysieren & in Airtable importieren", type="primary"):
+                    progress_container = st.empty()
+                    status_container = st.container()
 
-                    # Ergebnisse anzeigen
-                    col1, col2, col3 = st.columns(3)
+                    def update_progress(message):
+                        progress_container.info(f"⏳ {message}")
 
-                    with col1:
-                        st.metric("Foods gefunden", len(result.get('foods', [])))
-                    with col2:
-                        st.metric("Claims gefunden", len(result.get('claims', [])))
-                    with col3:
-                        st.metric("Nutrient-Sets", len(result.get('nutrient_data', [])))
+                    try:
+                        # Alles in einem Durchgang: Extrahieren + Importieren
+                        update_progress("Lade Datenbank-Cache...")
+                        time.sleep(0.5)
 
-                    # Details
-                    st.subheader("📊 Extrahierte Daten:")
+                        update_progress("Extrahiere Daten mit KI (30-60 Sek.)...")
+                        result = process_and_import(text, progress_callback=update_progress)
 
-                    if result.get('foods'):
-                        st.write("**Foods:**")
-                        for food in result['foods']:
-                            st.write(f"- {food.get('name')} ({food.get('category', 'N/A')})")
+                        progress_container.empty()
 
-                    if result.get('claims'):
-                        st.write("**Health Claims:**")
-                        for claim in result['claims']:
-                            st.write(f"- {claim.get('food_name')}: {claim.get('claim_text', '')[:100]}...")
-
-                    # In Session speichern für Import
-                    st.session_state['extracted_data'] = result
-
-                    # JSON Download
-                    st.download_button(
-                        "📥 Ergebnis als JSON herunterladen",
-                        data=json.dumps(result, indent=2, ensure_ascii=False),
-                        file_name=f"extracted_{uploaded_file.name}.json",
-                        mime="application/json"
-                    )
-
-                    st.divider()
-
-                    # AIRTABLE IMPORT BUTTON
-                    st.subheader("💾 In Airtable speichern")
-                    st.markdown("Klicke um die extrahierten Daten direkt in die Airtable-Datenbank zu importieren.")
-
-                    if st.button("🚀 Jetzt in Airtable speichern", type="primary"):
-                        progress_text = st.empty()
-                        progress_text.write("🔄 Starte Import...")
-
-                        try:
-                            import_stats = save_to_airtable(result)
-                            progress_text.write("✅ Import abgeschlossen!")
-                        except Exception as e:
-                            st.error(f"❌ Kritischer Fehler beim Import: {str(e)}")
-                            import traceback
-                            st.code(traceback.format_exc())
-                            st.stop()
-
-                        # Ergebnis anzeigen
-                        if import_stats["errors"]:
-                            st.warning(f"Import mit {len(import_stats['errors'])} Fehlern abgeschlossen")
+                        if "error" in result:
+                            st.error(f"❌ Fehler: {result['error']}")
                         else:
-                            st.success("✅ Import erfolgreich!")
+                            st.success("✅ Analyse und Import abgeschlossen!")
 
-                        # Stats anzeigen
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Sources", import_stats["sources_created"], delta="neu")
-                        with col2:
-                            foods_new = import_stats["foods_created"]
-                            foods_exist = import_stats["foods_existing"]
-                            st.metric("Foods", f"{foods_new} neu", delta=f"{foods_exist} existierten")
-                        with col3:
-                            st.metric("Claims", import_stats["claims_created"], delta="neu")
-                        with col4:
-                            st.metric("Nutrients", import_stats["nutrients_created"], delta="neu")
+                            # Extrahierte Daten anzeigen
+                            extracted = result.get('extracted_data', {})
 
-                        if import_stats["profiles_created"]:
-                            st.info(f"📊 {import_stats['profiles_created']} Nutrient-Profile erstellt")
+                            st.subheader("📊 Was wurde extrahiert und importiert:")
 
-                        if import_stats["errors"]:
-                            with st.expander("⚠️ Fehler anzeigen"):
-                                for err in import_stats["errors"]:
-                                    st.error(err)
+                            # Statistiken
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                sources_info = f"{result.get('sources_created', 0)} neu"
+                                if result.get('sources_updated', 0):
+                                    sources_info += f", {result['sources_updated']} aktualisiert"
+                                st.metric("📚 Sources", sources_info)
+                            with col2:
+                                foods_info = f"{result.get('interventions_created', 0)} neu"
+                                if result.get('interventions_updated', 0):
+                                    foods_info += f", {result['interventions_updated']} erw."
+                                st.metric("🥗 Foods", foods_info)
+                            with col3:
+                                st.metric("🎯 Claims", result.get('claims_created', 0))
+                            with col4:
+                                st.metric("🔬 Nutrients", result.get('nutrients_created', 0))
 
-                        st.balloons()
-                        st.success("🎉 Daten wurden in Airtable gespeichert! Du kannst die Datenbank jetzt ansehen.")
-                else:
-                    st.error("Fehler bei der Analyse. Bitte später erneut versuchen.")
+                            # Zweite Zeile
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("💊 Outcomes", result.get('outcomes_created', 0))
+                            with col2:
+                                st.metric("📈 Profiles", result.get('profiles_created', 0))
+
+                            # Details anzeigen
+                            st.divider()
+
+                            # Source Details
+                            if extracted.get('source'):
+                                with st.expander("📚 Source Details", expanded=True):
+                                    src = extracted['source']
+                                    st.write(f"**Titel:** {src.get('title', 'N/A')}")
+                                    st.write(f"**Typ:** {src.get('type', 'N/A')}")
+                                    st.write(f"**Autoren:** {src.get('authors', 'N/A')}")
+                                    st.write(f"**Jahr:** {src.get('year', 'N/A')}")
+                                    st.write(f"**Journal:** {src.get('journal', 'N/A')}")
+
+                            # Foods Details
+                            if extracted.get('foods'):
+                                with st.expander(f"🥗 Foods ({len(extracted['foods'])})", expanded=True):
+                                    for food in extracted['foods']:
+                                        st.markdown(f"**{food.get('name')}** ({food.get('category', 'N/A')})")
+                                        if food.get('summary'):
+                                            st.write(f"  {food['summary'][:200]}...")
+                                        if food.get('example_serving'):
+                                            st.write(f"  📏 Portion: {food['example_serving']}")
+                                        st.write("")
+
+                            # Claims Details
+                            if extracted.get('claims'):
+                                with st.expander(f"🎯 Health Claims ({len(extracted['claims'])})", expanded=True):
+                                    for claim in extracted['claims']:
+                                        st.markdown(f"**{claim.get('food_name')}** → {', '.join(claim.get('outcome_names', []))}")
+                                        st.write(f"  \"{claim.get('claim_text', '')[:150]}...\"")
+                                        st.write(f"  📊 Evidenz: {claim.get('evidence_strength', 'N/A')}")
+                                        st.write("")
+
+                            # Nutrients Details
+                            if extracted.get('nutrients'):
+                                with st.expander(f"🔬 Nutrients ({len(extracted['nutrients'])})", expanded=False):
+                                    for ns in extracted['nutrients']:
+                                        st.write(f"**{ns.get('food_name')}:**")
+                                        for n in ns.get('nutrients', []):
+                                            st.write(f"  - {n.get('name')}: {n.get('amount_per_100g')} {n.get('unit', 'g')}/100g")
+
+                            # Fehler anzeigen wenn vorhanden
+                            if result.get('errors'):
+                                with st.expander(f"⚠️ Warnungen ({len(result['errors'])})", expanded=False):
+                                    for err in result['errors']:
+                                        st.warning(err)
+
+                            # JSON Download
+                            st.divider()
+                            st.download_button(
+                                "📥 Komplettes Ergebnis als JSON",
+                                data=json.dumps(result, indent=2, ensure_ascii=False, default=str),
+                                file_name=f"import_result_{uploaded_file.name}.json",
+                                mime="application/json"
+                            )
+
+                            st.balloons()
+                            st.success("🎉 Die Datenbank wurde erweitert! Alle Verknuepfungen wurden automatisch erstellt.")
+
+                    except Exception as e:
+                        progress_container.empty()
+                        st.error(f"❌ Kritischer Fehler: {str(e)}")
+                        import traceback
+                        with st.expander("Fehler-Details"):
+                            st.code(traceback.format_exc())
 
 # =============================================================================
 # PAGE: DATABASE VIEW
