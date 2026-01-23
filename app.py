@@ -102,7 +102,7 @@ st.set_page_config(
 # =============================================================================
 
 # Passwort für Matthias
-CORRECT_PASSWORD = "AliveFoodDB2024!"
+CORRECT_PASSWORD = "AliveFoodDB2026!"
 
 def check_password():
     """Einfache Passwort-Abfrage"""
@@ -660,8 +660,7 @@ st.markdown("*Data Engine für Health Claims und Nährstoffdaten*")
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Wähle eine Funktion:", [
     "🔍 KI Query",
-    "📄 PDF hochladen",
-    "📊 Datenbank ansehen"
+    "📄 PDF hochladen"
 ])
 
 # =============================================================================
@@ -789,27 +788,6 @@ elif page == "📄 PDF hochladen":
             if not HAS_ENGINE_V3:
                 st.error("❌ Data Engine v3 nicht verfuegbar. Bitte data_engine_v3.py installieren.")
             else:
-                # Debug: Token Status anzeigen
-                from data_engine_v3 import get_secret
-                debug_token = get_secret("AIRTABLE_TOKEN")
-                debug_openai = get_secret("OPENAI_API_KEY")
-
-                with st.expander("🔧 Debug: API Status", expanded=False):
-                    if debug_token:
-                        st.success(f"✅ AIRTABLE_TOKEN geladen ({debug_token[:15]}...)")
-                    else:
-                        st.error("❌ AIRTABLE_TOKEN NICHT gefunden!")
-                        # Zeige was in st.secrets verfügbar ist
-                        try:
-                            st.write("Verfügbare Secrets:", list(st.secrets.keys()) if hasattr(st, 'secrets') else "Keine")
-                        except:
-                            st.write("st.secrets nicht verfügbar")
-
-                    if debug_openai:
-                        st.success(f"✅ OPENAI_API_KEY geladen ({debug_openai[:10]}...)")
-                    else:
-                        st.error("❌ OPENAI_API_KEY NICHT gefunden!")
-
                 # Verarbeiten und Importieren in einem Schritt!
                 if st.button("🚀 Analysieren & in Airtable importieren", type="primary"):
                     progress_container = st.empty()
@@ -918,7 +896,6 @@ elif page == "📄 PDF hochladen":
                                 mime="application/json"
                             )
 
-                            st.balloons()
                             st.success("🎉 Die Datenbank wurde erweitert! Alle Verknuepfungen wurden automatisch erstellt.")
 
                     except Exception as e:
@@ -927,52 +904,6 @@ elif page == "📄 PDF hochladen":
                         import traceback
                         with st.expander("Fehler-Details"):
                             st.code(traceback.format_exc())
-
-# =============================================================================
-# PAGE: DATABASE VIEW
-# =============================================================================
-
-elif page == "📊 Datenbank ansehen":
-    st.header("📊 Datenbank-Übersicht")
-
-    with st.spinner("Lade Datenbank..."):
-        # Lade Stats
-        interventions = get_all_records(TABLES["Interventions"])
-        outcomes = get_all_records(TABLES["Outcomes"])
-        claims = get_all_records(TABLES["Claims"])
-        nutrients = get_all_records(TABLES["Nutrients"])
-        profiles = get_all_records(TABLES["Food-Nutrient Profile"])
-        sources = get_all_records(TABLES["Sources"])
-
-    # Stats
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("🥗 Foods/Interventions", len(interventions))
-        st.metric("📚 Sources", len(sources))
-    with col2:
-        st.metric("🎯 Health Outcomes", len(outcomes))
-        st.metric("📝 Claims", len(claims))
-    with col3:
-        st.metric("🧪 Nutrients", len(nutrients))
-        st.metric("📊 Nutrient Profiles", len(profiles))
-
-    st.divider()
-
-    # Foods Liste
-    st.subheader("🥗 Foods in der Datenbank:")
-
-    for intv in interventions:
-        f = intv['fields']
-        food_type = f.get('Type (STRICT)', '')
-        if food_type in ['Food', 'Food group']:
-            with st.expander(f"{f.get('Name', 'Unknown')} ({f.get('Category', 'N/A')})"):
-                st.write(f"**Typ:** {food_type}")
-                st.write(f"**Portion:** {f.get('Example serving', 'N/A')}")
-                st.write(f"**Zusammenfassung:** {f.get('Short summary (human-readable)', 'N/A')}")
-
-                roles = f.get('Nutritional role (high-level)', [])
-                if roles:
-                    st.write(f"**Nutritional Roles:** {', '.join(roles)}")
 
 # =============================================================================
 # FOOTER
