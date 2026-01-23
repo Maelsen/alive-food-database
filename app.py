@@ -763,6 +763,27 @@ elif page == "📄 PDF hochladen":
             if not HAS_ENGINE_V3:
                 st.error("❌ Data Engine v3 nicht verfuegbar. Bitte data_engine_v3.py installieren.")
             else:
+                # Debug: Token Status anzeigen
+                from data_engine_v3 import get_secret
+                debug_token = get_secret("AIRTABLE_TOKEN")
+                debug_openai = get_secret("OPENAI_API_KEY")
+
+                with st.expander("🔧 Debug: API Status", expanded=False):
+                    if debug_token:
+                        st.success(f"✅ AIRTABLE_TOKEN geladen ({debug_token[:15]}...)")
+                    else:
+                        st.error("❌ AIRTABLE_TOKEN NICHT gefunden!")
+                        # Zeige was in st.secrets verfügbar ist
+                        try:
+                            st.write("Verfügbare Secrets:", list(st.secrets.keys()) if hasattr(st, 'secrets') else "Keine")
+                        except:
+                            st.write("st.secrets nicht verfügbar")
+
+                    if debug_openai:
+                        st.success(f"✅ OPENAI_API_KEY geladen ({debug_openai[:10]}...)")
+                    else:
+                        st.error("❌ OPENAI_API_KEY NICHT gefunden!")
+
                 # Verarbeiten und Importieren in einem Schritt!
                 if st.button("🚀 Analysieren & in Airtable importieren", type="primary"):
                     progress_container = st.empty()
