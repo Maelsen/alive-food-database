@@ -51,13 +51,15 @@ TABLES = {
     "Food-Nutrient Profile": "tbl8HbmIrNpNHhrYH"
 }
 
-# Valid options for select fields
+# Valid options for select fields - ALLE AIRTABLE OPTIONEN
 VALID_OPTIONS = {
     "source_type": ["Book", "Study", "Article", "Website", "Video"],
-    "intervention_type": ["Food", "Food group", "Food pattern", "Lifestyle"],
+    "intervention_type": ["Food", "Food group", "Food pattern", "Lifestyle", "Supplement (optional, future)"],
     "category": ["Fruit", "Vegetable", "Legume", "Whole grain", "Nuts & seeds",
                  "Herbs & spices", "Beverage", "Animal product", "Dietary pattern",
                  "Sleep", "Physical activity"],
+    "intervention_scope": ["Ingredient", "Food group", "Dietary pattern", "Lifestyle factor"],
+    "risk_framing": ["Actively encourage", "Neutral", "Context-dependent", "Limit", "Avoid"],
     "evidence_strength": ["Strong (RCT/Meta-analysis)", "Moderate (Cohort studies)",
                           "Preliminary (Observational)", "Mechanistic (In-vitro)"],
     # Nur existierende Airtable-Optionen! Mental Health -> Brain/Cognitive
@@ -207,69 +209,83 @@ class DatabaseCache:
 EXTRACTION_PROMPT = """Du bist ein Ernaehrungswissenschaftler und Datenbank-Experte.
 Analysiere den folgenden wissenschaftlichen Text und extrahiere ALLE relevanten Informationen.
 
-WICHTIG: Extrahiere SO VIELE Details wie moeglich! Jedes Feld das du fuellen kannst, fuellst du.
+WICHTIG:
+- Extrahiere SO VIELE Details wie moeglich!
+- Jedes Feld das du fuellen kannst, fuellst du.
+- Lass KEIN Feld leer wenn du Informationen dazu findest!
 
 Antworte NUR mit validem JSON in diesem EXAKTEN Format:
 
 {
     "source": {
         "title": "Vollstaendiger Titel der Studie/des Buches",
-        "type": "Study|Book|Article",
+        "type": "Study|Book|Article|Website|Video",
         "authors": "Autor1, Autor2, ...",
         "year": 2024,
         "journal": "Name des Journals oder Verlags",
-        "doi": "DOI wenn vorhanden",
+        "doi": "DOI wenn vorhanden (z.B. 10.3390/nu123456)",
+        "isbn": "ISBN wenn es ein Buch ist",
         "url": "URL wenn vorhanden",
         "total_pages": 14,
-        "notes": "Zusammenfassung: Was ist das Hauptthema?"
+        "notes": "Zusammenfassung: Was ist das Hauptthema dieser Quelle?"
     },
 
     "foods": [
         {
-            "name": "Name des Foods (z.B. Blueberries)",
+            "name": "Name des Foods (z.B. Blueberries, Flaxseed)",
             "type": "Food|Food group|Food pattern|Lifestyle",
-            "category": "Fruit|Vegetable|Legume|Whole grain|Nuts & seeds|Herbs & spices|Beverage",
+            "category": "Fruit|Vegetable|Legume|Whole grain|Nuts & seeds|Herbs & spices|Beverage|Animal product",
+            "intervention_scope": "Ingredient|Food group|Dietary pattern|Lifestyle factor",
             "is_plant_based": true,
             "is_whole_food": true,
-            "nutritional_roles": ["Antioxidants", "Fiber", "Polyphenols"],
-            "culinary_roles": ["Topping", "Snack", "Smoothie ingredient"],
+            "is_negative_risk": false,
+            "risk_framing": "Actively encourage|Neutral|Context-dependent|Limit|Avoid",
+            "nutritional_roles": ["Antioxidants", "Fiber", "Polyphenols", "Omega-3", "Protein"],
+            "culinary_roles": ["Topping", "Snack", "Smoothie ingredient", "Main dish", "Side dish"],
             "example_serving": "1 cup (148g)",
-            "typical_uses": "Breakfast bowls, Smoothies, Snacks",
-            "preparation_notes": "Fresh or frozen, no added sugar",
-            "summary": "2-3 Saetze die erklaeren warum dieses Food gesund ist",
+            "serving_size_grams": 148,
+            "typical_uses": "Breakfast bowls, Smoothies, Snacks, Baking",
+            "preparation_notes": "Fresh or frozen, no added sugar. Best consumed raw.",
+            "summary": "2-3 Saetze die erklaeren WARUM dieses Food gesund ist und was es besonders macht",
+            "internal_notes": "Zusaetzliche Notizen fuer interne Verwendung",
             "discovery_pages": "pp. 3-5, 12"
         }
     ],
 
     "health_outcomes": [
         {
-            "name": "Mental Health",
-            "category": "Brain/Cognitive|Cardiovascular|Gut/Digestive|Metabolic|Immune|Mental Health",
-            "notes": "Beschreibung was dieser Outcome bedeutet"
+            "name": "Name des Health Outcomes (z.B. Heart Health, Brain Function, Anxiety Reduction)",
+            "category": "Brain/Cognitive|Cardiovascular|Gut/Digestive|Metabolic|Immune|Inflammation|Other",
+            "notes": "Detaillierte Beschreibung was dieser Outcome bedeutet und wie er gemessen wird"
         }
     ],
 
     "claims": [
         {
-            "food_name": "Name des Foods",
-            "outcome_names": ["Mental Health", "Anxiety Reduction"],
-            "claim_text": "Der vollstaendige Health Claim - was genau wurde herausgefunden?",
-            "evidence_strength": "Strong (RCT/Meta-analysis)|Moderate (Cohort studies)|Preliminary (Observational)",
-            "page_reference": "p. 5"
+            "food_name": "Name des Foods (muss mit einem Food oben uebereinstimmen)",
+            "outcome_names": ["Health Outcome 1", "Health Outcome 2"],
+            "claim_text": "Der vollstaendige Health Claim - was GENAU wurde herausgefunden? Sei spezifisch!",
+            "evidence_strength": "Strong (RCT/Meta-analysis)|Moderate (Cohort studies)|Preliminary (Observational)|Mechanistic (In-vitro)",
+            "page_reference": "p. 5, pp. 12-15",
+            "study_details": "Details zur Studie: n=245, 12 Wochen, doppelblind etc."
         }
     ],
 
     "nutrients": [
         {
             "food_name": "Name des Foods",
+            "serving_size": "1 cup",
+            "serving_size_grams": 148,
             "nutrients": [
                 {
                     "name": "Anthocyanins",
                     "amount_per_100g": 164.0,
-                    "unit": "mg",
-                    "category": "Phytonutrient",
-                    "subcategory": "Polyphenol",
-                    "health_benefits": "Starke antioxidative Wirkung, neuroprotektiv",
+                    "amount_per_serving": 242.7,
+                    "unit": "mg|g|mcg|IU",
+                    "daily_value_percent": 0,
+                    "category": "Macronutrient|Micronutrient|Phytonutrient|Other",
+                    "subcategory": "Vitamin|Mineral|Amino Acid|Fatty Acid|Fiber|Polyphenol|Carotenoid",
+                    "health_benefits": "Beschreibung der gesundheitlichen Vorteile dieses Naehrstoffs",
                     "confidence": "High|Medium|Low"
                 }
             ]
@@ -277,14 +293,17 @@ Antworte NUR mit validem JSON in diesem EXAKTEN Format:
     ]
 }
 
-REGELN:
-1. Extrahiere JEDEN Food der erwaehnt wird
-2. Extrahiere JEDEN Health Claim - auch wenn er subtil ist
-3. Extrahiere ALLE Naehrstoffdaten die du findest
-4. Wenn du dir nicht sicher bist, verwende "Medium" als Confidence
-5. Verwende die EXAKTEN Kategorien aus den Optionen oben
-6. Bei Health Outcomes: Erstelle neue wenn noetig (z.B. "Anxiety Reduction", "Depression Prevention")
-7. Die Zusammenfassung (summary) sollte erklaeren WARUM dieses Food gesund ist
+WICHTIGE REGELN:
+1. Extrahiere JEDEN Food der erwaehnt wird - auch wenn nur kurz
+2. Extrahiere JEDEN Health Claim - auch subtile Aussagen wie "may support" oder "associated with"
+3. Extrahiere ALLE Naehrstoffdaten mit Mengenangaben
+4. Bei Portionsgroessen: Berechne auch die Gramm-Angabe wenn moeglich
+5. Bei Nutrients: Berechne amount_per_serving aus amount_per_100g und serving_size_grams
+6. Verwende die EXAKTEN Kategorien aus den Optionen (vor dem |)
+7. Bei Health Outcomes: Erstelle spezifische Outcomes (z.B. "Anxiety Reduction" statt nur "Mental Health")
+8. Die Zusammenfassung (summary) sollte erklaeren WARUM dieses Food gesund ist
+9. Bei evidence_strength: Waehle basierend auf Studientyp (RCT > Cohort > Observational > In-vitro)
+10. Wenn du dir nicht sicher bist, verwende "Medium" als Confidence
 
 TEXT ZUM ANALYSIEREN:
 """
@@ -527,18 +546,28 @@ class DataImporter:
                 print(f"  -> Aktualisiert: {list(updates.keys())}")
             return
 
-        # Neu erstellen
+        # Neu erstellen - ALLE FELDER
         fields = {
             "Name": name,
             "Type (STRICT)": self._validate_option(food_data.get('type', 'Food'), 'intervention_type'),
             "Category": self._validate_option(food_data.get('category', 'Fruit'), 'category'),
         }
 
+        # Intervention Scope
+        if food_data.get('intervention_scope'):
+            fields['Intervention scope'] = self._validate_option(food_data['intervention_scope'], 'intervention_scope')
+
         # Checkboxen
         if food_data.get('is_plant_based') is not None:
             fields['Is plant-based?'] = bool(food_data['is_plant_based'])
         if food_data.get('is_whole_food') is not None:
             fields['Is whole food?'] = bool(food_data['is_whole_food'])
+        if food_data.get('is_negative_risk') is not None:
+            fields['Is negative / risk factor?'] = bool(food_data['is_negative_risk'])
+
+        # Risk Framing
+        if food_data.get('risk_framing'):
+            fields['Risk framing (editorial)'] = self._validate_option(food_data['risk_framing'], 'risk_framing')
 
         # Text Felder
         if food_data.get('example_serving'):
@@ -549,6 +578,8 @@ class DataImporter:
             fields['Preparation notes'] = food_data['preparation_notes']
         if food_data.get('summary'):
             fields['Short summary (human-readable)'] = food_data['summary']
+        if food_data.get('internal_notes'):
+            fields['Internal notes'] = food_data['internal_notes']
         if food_data.get('discovery_pages'):
             fields['Discovery pages'] = food_data['discovery_pages']
 
@@ -684,18 +715,29 @@ class DataImporter:
             if normalized in self.cache.nutrients:
                 nutrient_id = self.cache.nutrients[normalized]['id']
             else:
-                # Neu erstellen
+                # Neu erstellen - ALLE FELDER
                 fields = {
                     "Name": nutrient_name,
                     "Nutrient Name": nutrient_name,
                 }
 
+                # Kategorie
                 if nutrient_data.get('category'):
                     fields['Category'] = self._validate_option(nutrient_data['category'], 'nutrient_category')
+
+                # Subkategorie
                 if nutrient_data.get('subcategory'):
                     fields['Subcategory'] = self._validate_option(nutrient_data['subcategory'], 'nutrient_subcategory')
+
+                # Unit
                 if nutrient_data.get('unit'):
                     fields['Unit'] = self._validate_option(nutrient_data['unit'], 'unit')
+
+                # Daily Value
+                if nutrient_data.get('daily_value_percent') and nutrient_data['daily_value_percent'] > 0:
+                    fields['Daily Value'] = float(nutrient_data['daily_value_percent'])
+
+                # Health Benefits
                 if nutrient_data.get('health_benefits'):
                     fields['Health Benefits'] = nutrient_data['health_benefits']
 
@@ -718,16 +760,38 @@ class DataImporter:
             if profile_exists:
                 continue
 
-            # Food-Nutrient Profile erstellen
+            # Food-Nutrient Profile erstellen - ALLE FELDER
             profile_fields = {
                 "Food": [food_id],
                 "Nutrient": [nutrient_id],
             }
 
+            # Amount per 100g
             if nutrient_data.get('amount_per_100g') is not None:
                 profile_fields['Amount per 100g'] = float(nutrient_data['amount_per_100g'])
+
+            # Serving Size (aus nutrient_set, nicht nutrient_data)
+            serving_size = nutrient_set.get('serving_size', '')
+            serving_grams = nutrient_set.get('serving_size_grams', 0)
+
+            if serving_size:
+                profile_fields['Serving Size'] = serving_size
+            if serving_grams and serving_grams > 0:
+                profile_fields['Serving Size Grams'] = float(serving_grams)
+
+            # Amount per Serving (berechnen oder aus Daten)
+            if nutrient_data.get('amount_per_serving') is not None:
+                profile_fields['Amount per Serving'] = float(nutrient_data['amount_per_serving'])
+            elif nutrient_data.get('amount_per_100g') and serving_grams:
+                # Berechne Amount per Serving
+                amount_per_serving = (float(nutrient_data['amount_per_100g']) * float(serving_grams)) / 100
+                profile_fields['Amount per Serving'] = round(amount_per_serving, 2)
+
+            # Confidence Level
             if nutrient_data.get('confidence'):
                 profile_fields['Confidence Level'] = self._validate_option(nutrient_data['confidence'], 'confidence')
+
+            # Source Reference
             if self.source_id:
                 profile_fields['Source Reference'] = f"Source ID: {self.source_id}"
 
