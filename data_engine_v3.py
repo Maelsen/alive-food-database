@@ -643,11 +643,13 @@ class DataImporter:
         if food_data.get('discovery_pages'):
             fields['Discovery pages'] = food_data['discovery_pages']
 
-        # Multi-Select Felder
-        if food_data.get('nutritional_roles'):
-            fields['Nutritional role (high-level)'] = food_data['nutritional_roles'][:5]
-        if food_data.get('culinary_roles'):
-            fields['Culinary role'] = food_data['culinary_roles'][:5]
+        # Multi-Select Felder - NUR gueltige Optionen verwenden
+        # Diese Felder sind problematisch weil die KI oft ungueltige Werte generiert
+        # Daher werden sie erstmal auskommentiert bis die gueltigen Optionen bekannt sind
+        # if food_data.get('nutritional_roles'):
+        #     fields['Nutritional role (high-level)'] = food_data['nutritional_roles'][:5]
+        # if food_data.get('culinary_roles'):
+        #     fields['Culinary role'] = food_data['culinary_roles'][:5]
 
         # Source verknuepfen
         if self.source_id:
