@@ -607,8 +607,13 @@ class DataImporter:
             return
 
         # Neu erstellen - ALLE FELDER
+        # Generiere Interventions ID automatisch (INT-XXXX)
+        next_id = len(self.cache.interventions) + 1
+        intervention_id_str = f"INT-{next_id:04d}"
+
         fields = {
             "Name": name,
+            "Interventions ID": intervention_id_str,
             "Type (STRICT)": self._validate_option(food_data.get('type', 'Food'), 'intervention_type'),
             "Category": self._validate_option(food_data.get('category', 'Fruit'), 'category'),
         }
@@ -747,6 +752,28 @@ class DataImporter:
             self.stats["claims_created"] += 1
             self.cache.claims.append({'id': claim_id, 'fields': fields})
             print(f"  -> NEU erstellt")
+
+            # BIDIREKTIONALE VERKNUEPFUNGEN erstellen
+            # 1. Update Intervention mit Outcomes
+            if outcome_ids:
+                existing_intervention = self.cache.interventions.get(normalize_name(food_name), {})
+                existing_outcomes = existing_intervention.get('fields', {}).get('Outcomes', [])
+                new_outcomes = list(set(existing_outcomes + outcome_ids))
+                if new_outcomes != existing_outcomes:
+                    update_record(TABLES["Interventions"], food_id, {"Outcomes": new_outcomes})
+                    print(f"    -> Intervention mit {len(outcome_ids)} Outcomes verknuepft")
+
+            # 2. Update Outcomes mit Related Interventions
+            for outcome_id in outcome_ids:
+                # Finde das Outcome im Cache
+                for norm_name, outcome_data in self.cache.outcomes.items():
+                    if outcome_data['id'] == outcome_id:
+                        existing_interventions = outcome_data.get('fields', {}).get('Related Interventions', [])
+                        if food_id not in existing_interventions:
+                            new_interventions = existing_interventions + [food_id]
+                            update_record(TABLES["Outcomes"], outcome_id, {"Related Interventions": new_interventions})
+                            print(f"    -> Outcome mit Intervention verknuepft")
+                        break
         else:
             self.stats["errors"].append(f"Konnte Claim nicht erstellen")
 
@@ -778,9 +805,14 @@ class DataImporter:
                 nutrient_id = self.cache.nutrients[normalized]['id']
             else:
                 # Neu erstellen - ALLE FELDER
+                # Generiere Nutrient ID automatisch (NUT-XXX)
+                next_id = len(self.cache.nutrients) + 1
+                nutrient_id_str = f"NUT-{next_id:03d}"
+
                 fields = {
                     "Name": nutrient_name,
                     "Nutrient Name": nutrient_name,
+                    "Nutrient ID": nutrient_id_str,
                 }
 
                 # Kategorie
