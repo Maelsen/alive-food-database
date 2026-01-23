@@ -421,12 +421,15 @@ class DataImporter:
             "claims_created": 0,
             "nutrients_created": 0,
             "profiles_created": 0,
+            "profiles_skipped": 0,
             "errors": []
         }
         self.source_id = None
         self.food_ids = {}  # name -> id
         self.outcome_ids = {}  # name -> id
         self.nutrient_ids = {}  # name -> id
+        # Track Food+Nutrient combinations created in this session to prevent duplicates
+        self.created_profiles = set()  # (food_id, nutrient_id)
 
     def import_all(self, data: Dict) -> Dict:
         """Importiert alle extrahierten Daten"""
@@ -731,7 +734,17 @@ class DataImporter:
                     return
 
         # Claim erstellen
+        # Name-Feld: "Food: Claim (gekuerzt)"
+        outcome_names = claim_data.get('outcome_names', [])
+        if outcome_names:
+            claim_name = f"{food_name}: {outcome_names[0]}"
+        else:
+            # Kuerze Claim Text auf 50 Zeichen
+            short_claim = claim_text[:50] + "..." if len(claim_text) > 50 else claim_text
+            claim_name = f"{food_name}: {short_claim}"
+
         fields = {
+            "Name": claim_name,
             "Intervention": [food_id],
             "Claim Text": claim_text,
             "Evidence Strength": self._validate_option(
@@ -842,7 +855,15 @@ class DataImporter:
                 else:
                     continue
 
-            # Pruefe ob Profile schon existiert
+            # Pruefe ob Profile schon existiert (in DB oder in dieser Session)
+            profile_key = (food_id, nutrient_id)
+
+            # Check 1: Bereits in dieser Session erstellt?
+            if profile_key in self.created_profiles:
+                self.stats["profiles_skipped"] += 1
+                continue
+
+            # Check 2: Bereits in der Datenbank?
             profile_exists = False
             for p in self.cache.profiles:
                 p_foods = p['fields'].get('Food', [])
@@ -852,10 +873,15 @@ class DataImporter:
                     break
 
             if profile_exists:
+                self.stats["profiles_skipped"] += 1
                 continue
 
             # Food-Nutrient Profile erstellen - ALLE FELDER
+            # Name-Feld: "Food - Nutrient"
+            profile_name = f"{food_name} - {nutrient_name}"
+
             profile_fields = {
+                "Name": profile_name,
                 "Food": [food_id],
                 "Nutrient": [nutrient_id],
             }
@@ -913,6 +939,8 @@ class DataImporter:
             if profile_id:
                 self.stats["profiles_created"] += 1
                 self.cache.profiles.append({'id': profile_id, 'fields': profile_fields})
+                # Markiere als erstellt um Duplikate in dieser Session zu verhindern
+                self.created_profiles.add(profile_key)
 
     def _validate_option(self, value: str, option_type: str) -> str:
         """Validiert und korrigiert Select-Optionen"""
@@ -969,7 +997,7 @@ class DataImporter:
         print(f"  Outcomes:      {self.stats['outcomes_created']} neu")
         print(f"  Claims:        {self.stats['claims_created']} neu")
         print(f"  Nutrients:     {self.stats['nutrients_created']} neu")
-        print(f"  Profiles:      {self.stats['profiles_created']} neu")
+        print(f"  Profiles:      {self.stats['profiles_created']} neu, {self.stats['profiles_skipped']} uebersprungen (Duplikate)")
 
         if self.stats['errors']:
             print(f"\n  Fehler ({len(self.stats['errors'])}):")
