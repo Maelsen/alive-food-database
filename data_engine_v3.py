@@ -42,8 +42,13 @@ def get_secret(key, default=None):
     # Then try Streamlit secrets (for Streamlit Cloud deployment)
     try:
         import streamlit as st
-        if hasattr(st, 'secrets') and key in st.secrets:
-            return st.secrets[key]
+        if hasattr(st, 'secrets'):
+            # Try exact key first
+            if key in st.secrets:
+                return st.secrets[key]
+            # WORKAROUND: Check for typo "aAIRTABLE_TOKEN" -> "AIRTABLE_TOKEN"
+            if key == "AIRTABLE_TOKEN" and "aAIRTABLE_TOKEN" in st.secrets:
+                return st.secrets["aAIRTABLE_TOKEN"]
     except Exception:
         pass
 
