@@ -382,12 +382,13 @@ def get_or_create_nutrient(name, unit="g"):
 
 def create_source(title, source_type="Study"):
     """Erstellt eine neue Source"""
-    existing_id = find_existing_record(TABLES["Sources"], "Title", title)
+    # Richtiger Feldname in Airtable ist "Source (canonical name)"
+    existing_id = find_existing_record(TABLES["Sources"], "Source (canonical name)", title)
     if existing_id:
         return existing_id, False
 
     fields = {
-        "Title": title,
+        "Source (canonical name)": title,
         "Source Type": source_type
     }
     new_id = create_record(TABLES["Sources"], fields)
@@ -796,8 +797,17 @@ elif page == "📄 PDF hochladen":
                     st.markdown("Klicke um die extrahierten Daten direkt in die Airtable-Datenbank zu importieren.")
 
                     if st.button("🚀 Jetzt in Airtable speichern", type="primary"):
-                        with st.spinner("Speichere in Airtable..."):
+                        progress_text = st.empty()
+                        progress_text.write("🔄 Starte Import...")
+
+                        try:
                             import_stats = save_to_airtable(result)
+                            progress_text.write("✅ Import abgeschlossen!")
+                        except Exception as e:
+                            st.error(f"❌ Kritischer Fehler beim Import: {str(e)}")
+                            import traceback
+                            st.code(traceback.format_exc())
+                            st.stop()
 
                         # Ergebnis anzeigen
                         if import_stats["errors"]:
