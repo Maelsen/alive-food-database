@@ -193,7 +193,7 @@ def update_record(table_id: str, record_id: str, fields: Dict) -> bool:
 
 
 def normalize_name(name: str) -> str:
-    """Normalisiert Namen fuer Duplikat-Erkennung"""
+    """Normalisiert Namen fuer Duplikat-Erkennung (inkl. Singular/Plural)"""
     if not name:
         return ""
     normalized = name.lower().strip()
@@ -202,7 +202,50 @@ def normalize_name(name: str) -> str:
         normalized = normalized.replace(char, ' ')
     # Mehrere Leerzeichen zu einem
     normalized = ' '.join(normalized.split())
-    return normalized
+
+    # Singular/Plural Normalisierung - konvertiere zu Singular
+    # Behandle spezielle Faelle zuerst
+    word_mappings = {
+        'blueberries': 'blueberry',
+        'strawberries': 'strawberry',
+        'raspberries': 'raspberry',
+        'blackberries': 'blackberry',
+        'cranberries': 'cranberry',
+        'cherries': 'cherry',
+        'berries': 'berry',
+        'tomatoes': 'tomato',
+        'potatoes': 'potato',
+        'leaves': 'leaf',
+        'leafy greens': 'leafy green',
+    }
+
+    for plural, singular in word_mappings.items():
+        normalized = normalized.replace(plural, singular)
+
+    # Allgemeine Plural-Endungen (nur am Wortende)
+    words = normalized.split()
+    normalized_words = []
+    for word in words:
+        # -ies -> -y (bereits oben behandelt fuer bekannte Woerter)
+        # -es -> (nur wenn nicht bereits behandelt)
+        if word.endswith('es') and word not in word_mappings.values():
+            # seeds -> seed, vegetables -> vegetable
+            if word.endswith('ies'):
+                pass  # bereits behandelt
+            elif word.endswith('ves'):
+                word = word[:-3] + 'f'  # leaves -> leaf
+            elif word.endswith('oes'):
+                pass  # bereits behandelt (tomatoes, potatoes)
+            elif word.endswith('ses') or word.endswith('xes') or word.endswith('zes'):
+                word = word[:-2]  # glasses -> glass
+            else:
+                word = word[:-1]  # vegetables -> vegetable
+        elif word.endswith('s') and len(word) > 3 and not word.endswith('ss'):
+            # Einfaches -s entfernen: walnuts -> walnut, seeds -> seed
+            word = word[:-1]
+        normalized_words.append(word)
+
+    return ' '.join(normalized_words)
 
 
 # =============================================================================
