@@ -327,7 +327,8 @@ Antworte NUR mit validem JSON in diesem EXAKTEN Format:
             "claim_text": "Der vollstaendige Health Claim - was GENAU wurde herausgefunden? Sei spezifisch!",
             "evidence_strength": "Strong (RCT/Meta-analysis)|Moderate (Cohort studies)|Preliminary (Observational)|Mechanistic (In-vitro)",
             "page_reference": "p. 5, pp. 12-15",
-            "study_details": "Details zur Studie: n=245, 12 Wochen, doppelblind etc."
+            "study_details": "Details zur Studie: n=245, 12 Wochen, doppelblind etc.",
+            "quantified_effect": "NUR AUSFUELLEN wenn die Studie quantifizierbare Ergebnisse nennt! Format: '[Dosis] for [Dauer] -> [X]% [Verbesserung/Reduktion] in [Outcome]'. Beispiele: '30g blueberries/day for 8 weeks -> 25% reduction in inflammation markers' oder '7g fiber daily -> 20% lower all-cause mortality'. LEER LASSEN wenn keine quantifizierbaren Daten vorhanden!"
         }
     ],
 
@@ -364,6 +365,7 @@ WICHTIGE REGELN:
 8. Die Zusammenfassung (summary) sollte erklaeren WARUM dieses Food gesund ist
 9. Bei evidence_strength: Waehle basierend auf Studientyp (RCT > Cohort > Observational > In-vitro)
 10. Wenn du dir nicht sicher bist, verwende "Medium" als Confidence
+11. quantified_effect: NUR ausfuellen wenn die Studie KONKRETE ZAHLEN nennt (z.B. "25% reduction", "30g/day for 8 weeks"). Wenn keine quantifizierbaren Daten -> leerer String ""
 
 TEXT ZUM ANALYSIEREN:
 """
@@ -762,6 +764,9 @@ class DataImporter:
             fields["Source"] = [self.source_id]
         if claim_data.get('page_reference'):
             fields["Page Reference"] = claim_data['page_reference']
+        # Quantified Effect - nur wenn vorhanden (z.B. "30g/day for 8 weeks -> 25% reduction")
+        if claim_data.get('quantified_effect'):
+            fields["Quantified Effect"] = claim_data['quantified_effect']
 
         claim_id = create_record(TABLES["Claims"], fields)
         if claim_id:
