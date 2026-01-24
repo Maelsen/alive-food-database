@@ -986,6 +986,10 @@ class DataImporter:
             if self.source_title:
                 profile_fields['Source Reference'] = self.source_title
 
+            # Unit - von Nutrient uebernehmen
+            if nutrient_data.get('unit'):
+                profile_fields['Unit'] = self._validate_option(nutrient_data['unit'], 'unit')
+
             profile_id = create_record(TABLES["Food-Nutrient Profile"], profile_fields)
             if profile_id:
                 self.stats["profiles_created"] += 1
