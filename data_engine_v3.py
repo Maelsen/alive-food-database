@@ -986,13 +986,22 @@ class DataImporter:
         if not outcome_ids:
             print(f"  -> WARNUNG: Keine Outcomes gefunden")
 
-        # Pruefe ob Claim schon existiert (gleicher Text + Food)
+        # Duplikat-Erkennung: gleiches Food UND (gleicher Text ODER gleiche
+        # Outcome-Menge + gleiche Quelle). Letzteres faengt Re-Uploads ab, auch
+        # wenn die KI den Claim-Text minimal anders formuliert.
+        new_outcome_set = set(outcome_ids)
         for existing in self.cache.claims:
-            if existing['fields'].get('Claim Text') == claim_text:
-                existing_foods = existing['fields'].get('Intervention', [])
-                if food_id in existing_foods:
-                    print(f"  -> Existiert bereits")
-                    return
+            ef = existing['fields']
+            if food_id not in ef.get('Intervention', []):
+                continue
+            if ef.get('Claim Text') == claim_text:
+                print(f"  -> Existiert bereits (gleicher Text)")
+                return
+            existing_outcomes = set(ef.get('Health Outcome', []))
+            same_source = bool(self.source_id) and self.source_id in ef.get('Source', [])
+            if new_outcome_set and existing_outcomes == new_outcome_set and same_source:
+                print(f"  -> Existiert bereits (gleiche Food+Outcome+Quelle)")
+                return
 
         # Claim erstellen
         # Name-Feld: "Food: Claim (gekuerzt)"
