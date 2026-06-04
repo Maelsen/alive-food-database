@@ -92,10 +92,75 @@ TABLES = {
 # =============================================================================
 
 st.set_page_config(
-    page_title="Alive Food Database",
-    page_icon="🥗",
+    page_title="Alive. Food Database",
+    page_icon="▪",
     layout="wide"
 )
+
+# =============================================================================
+# BRAND STYLING (Alive. — matches the scope-sheet aesthetic)
+# =============================================================================
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap');
+:root{
+  --bordeaux:#A03A2C; --bordeaux-deep:#8a3024; --olive:#6b7d5c; --ink:#2c2826;
+  --muted:#6e6b66; --hairline:#e5e2da; --cream:#faf9f5; --cream-deep:#f3f1e9;
+}
+html, body, .stApp, button, input, textarea, [class^="st-"], [class*=" st-"]{
+  font-family:'Figtree',-apple-system,BlinkMacSystemFont,sans-serif;
+}
+.stApp{ background:var(--cream); color:var(--ink); }
+.block-container{ padding-top:2.2rem; max-width:1080px; }
+section[data-testid="stSidebar"]{ background:var(--cream-deep); border-right:1px solid var(--hairline); }
+section[data-testid="stSidebar"] *{ color:var(--ink); }
+h1,h2,h3,h4{ color:var(--ink); letter-spacing:-0.01em; font-weight:600; }
+a, a:visited{ color:var(--bordeaux); }
+hr{ border-color:var(--hairline); }
+
+/* Brand header */
+.alv-head{ border-bottom:2px solid var(--bordeaux); padding-bottom:10px; margin:0 0 24px;
+  display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px; }
+.alv-brand{ font-size:1.6rem; font-weight:700; color:var(--ink); letter-spacing:-0.02em; }
+.alv-brand .dot{ color:var(--bordeaux); }
+.alv-who{ font-size:0.72rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; }
+.alv-kicker{ font-size:0.72rem; font-weight:700; color:var(--bordeaux); text-transform:uppercase;
+  letter-spacing:0.09em; margin-bottom:3px; }
+.alv-title{ font-size:1.45rem; font-weight:600; color:var(--ink); margin:0 0 4px; letter-spacing:-0.01em; }
+.alv-lead{ color:var(--muted); font-size:0.95rem; margin:0 0 6px; }
+
+/* Buttons */
+.stButton>button, .stDownloadButton>button, .stFormSubmitButton>button{
+  background:var(--bordeaux); color:#fff !important; border:1px solid var(--bordeaux);
+  border-radius:4px; font-weight:600; letter-spacing:0.01em; box-shadow:none; transition:background .15s ease;
+}
+.stButton>button:hover, .stDownloadButton>button:hover, .stFormSubmitButton>button:hover{
+  background:var(--bordeaux-deep); border-color:var(--bordeaux-deep); color:#fff !important;
+}
+.stButton>button:focus, .stButton>button:active{ background:var(--bordeaux-deep); color:#fff !important; box-shadow:none; }
+
+/* Inputs */
+.stTextInput input{ background:#fff; color:var(--ink); border-radius:4px; }
+.stTextInput div[data-baseweb="input"]{ border:1px solid var(--hairline); border-radius:4px; }
+
+/* Metrics — editorial card with bordeaux rule */
+[data-testid="stMetric"]{ background:#fff; border:1px solid var(--hairline); border-left:3px solid var(--bordeaux);
+  border-radius:0 6px 6px 0; padding:10px 14px; }
+[data-testid="stMetricValue"]{ font-family:'JetBrains Mono',monospace; color:var(--bordeaux); font-size:1.35rem; }
+[data-testid="stMetricLabel"]{ color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; font-size:0.72rem; }
+
+/* File uploader */
+[data-testid="stFileUploaderDropzone"]{ background:#fff; border:1px dashed #cdc9bf; }
+
+/* Expanders */
+[data-testid="stExpander"]{ border:1px solid var(--hairline); border-radius:6px; background:#fff; }
+[data-testid="stExpander"] summary{ font-weight:600; color:var(--ink); }
+
+/* Alerts */
+[data-testid="stAlert"]{ border-radius:6px; }
+</style>
+""", unsafe_allow_html=True)
 
 # =============================================================================
 # PASSWORD PROTECTION
@@ -113,17 +178,24 @@ def check_password():
     if st.session_state.authenticated:
         return True
 
-    st.title("🔐 Login")
-    st.markdown("Please enter password to continue.")
+    st.markdown("""
+    <div class="alv-head">
+      <span class="alv-brand">Alive<span class="dot">.</span> Food Database</span>
+      <span class="alv-who">Ezeyflow × Alive.</span>
+    </div>
+    <div class="alv-kicker">Sign in</div>
+    <div class="alv-lead">Enter the password to continue.</div>
+    """, unsafe_allow_html=True)
 
-    password = st.text_input("Password:", type="password")
+    password = st.text_input("Password", type="password", label_visibility="collapsed",
+                             placeholder="Password")
 
     if st.button("Log in", type="primary"):
         if password == CORRECT_PASSWORD:
             st.session_state.authenticated = True
             st.rerun()
         else:
-            st.error("❌ Wrong password!")
+            st.error("Wrong password.")
 
     st.markdown("---")
     st.markdown("")
@@ -653,23 +725,30 @@ TEXT ZUM ANALYSIEREN:
 # MAIN APP
 # =============================================================================
 
-st.title("🥗 Alive Food Database")
-st.markdown("*Data Engine for Health Claims and Nutrient Data*")
+st.markdown("""
+<div class="alv-head">
+  <span class="alv-brand">Alive<span class="dot">.</span> Food Database</span>
+  <span class="alv-who">Data engine · health claims &amp; nutrient data</span>
+</div>
+""", unsafe_allow_html=True)
 
 # Sidebar
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Select a function:", [
-    "🔍 AI Query",
-    "📄 Upload PDF"
-])
+st.sidebar.markdown('<div class="alv-kicker">Navigation</div>', unsafe_allow_html=True)
+page = st.sidebar.radio("Navigation", [
+    "AI Query",
+    "Upload"
+], label_visibility="collapsed")
 
 # =============================================================================
 # PAGE: KI QUERY
 # =============================================================================
 
-if page == "🔍 AI Query":
-    st.header("🔍 Health Goal → Ingredients")
-    st.markdown("Enter a health goal and get matching ingredients recommended.")
+if page == "AI Query":
+    st.markdown("""
+    <div class="alv-kicker">Query</div>
+    <div class="alv-title">Health goal → ingredients</div>
+    <div class="alv-lead">Enter a health goal and get matching ingredients recommended.</div>
+    """, unsafe_allow_html=True)
 
     col1, col2 = st.columns([3, 1])
 
@@ -682,26 +761,26 @@ if page == "🔍 AI Query":
     with col2:
         st.write("")
         st.write("")
-        search_button = st.button("🔍 Search", type="primary")
+        search_button = st.button("Search", type="primary")
 
     # Quick buttons
-    st.markdown("**Quick selection:**")
+    st.markdown('<div class="alv-kicker">Quick selection</div>', unsafe_allow_html=True)
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        if st.button("🫀 Heart Health"):
+        if st.button("Heart Health"):
             health_goal = "Heart Health"
             search_button = True
     with col2:
-        if st.button("🧠 Brain Health"):
+        if st.button("Brain Health"):
             health_goal = "Brain Health"
             search_button = True
     with col3:
-        if st.button("🦠 Gut Health"):
+        if st.button("Gut Health"):
             health_goal = "Gut Health"
             search_button = True
     with col4:
-        if st.button("💪 Inflammation"):
+        if st.button("Inflammation"):
             health_goal = "Inflammation"
             search_button = True
 
@@ -713,10 +792,10 @@ if page == "🔍 AI Query":
             foods = find_foods_for_goal(db, health_goal)
 
         if foods:
-            st.success(f"✅ {len(foods)} matching ingredients found!")
+            st.success(f"{len(foods)} matching ingredients found.")
 
             # Show found foods
-            st.subheader("📋 Found Ingredients:")
+            st.markdown('<div class="alv-kicker" style="margin-top:8px">Found ingredients</div>', unsafe_allow_html=True)
             for i, food in enumerate(foods[:5], 1):
                 with st.expander(f"{i}. {food['name']} ({food['category']})"):
                     st.write(f"**Summary:** {food['summary']}")
@@ -729,7 +808,7 @@ if page == "🔍 AI Query":
                             st.write(f"- {n['name']}: {n['amount']} {n['unit']}")
 
             # AI Recommendation
-            st.subheader("🤖 AI Recipe Recommendation:")
+            st.markdown('<div class="alv-kicker" style="margin-top:8px">Recipe recommendation</div>', unsafe_allow_html=True)
             with st.spinner("Generating recommendation..."):
                 recommendation = generate_recipe_recommendation(foods, health_goal)
             st.markdown(recommendation)
@@ -740,9 +819,12 @@ if page == "🔍 AI Query":
 # PAGE: PDF UPLOAD
 # =============================================================================
 
-elif page == "📄 Upload PDF":
-    st.header("📄 Process PDF/Study")
-    st.markdown("Upload a PDF or text file and the AI will automatically extract all health claims and nutrient data.")
+elif page == "Upload":
+    st.markdown("""
+    <div class="alv-kicker">Upload</div>
+    <div class="alv-title">Process a study or document</div>
+    <div class="alv-lead">Upload a PDF or text file. The AI extracts the foods, health claims and nutrient data and adds them to the database.</div>
+    """, unsafe_allow_html=True)
 
     uploaded_file = st.file_uploader(
         "Upload file (PDF or TXT):",
@@ -751,7 +833,7 @@ elif page == "📄 Upload PDF":
     )
 
     if uploaded_file:
-        st.info(f"📁 File: {uploaded_file.name} ({uploaded_file.size / 1024:.1f} KB)")
+        st.info(f"File: {uploaded_file.name} ({uploaded_file.size / 1024:.1f} KB)")
 
         # Text extrahieren
         text = ""
@@ -779,7 +861,7 @@ elif page == "📄 Upload PDF":
 
                     if not text.strip():
                         st.error(
-                            f"⚠️ No readable text found in this PDF ({total_pages} page(s)). "
+                            f"No readable text found in this PDF ({total_pages} page(s)). "
                             "It looks like a scanned or image-only PDF without a text layer, "
                             "so there is nothing the AI can read.\n\n"
                             "**What to do:** upload a text-based PDF, or copy the text into a "
@@ -787,7 +869,7 @@ elif page == "📄 Upload PDF":
                         )
                         extraction_failed = True
                 except Exception as e:
-                    st.error(f"❌ Could not read this PDF: {e}")
+                    st.error(f"Could not read this PDF: {e}")
                     extraction_failed = True
         else:
             # TXT (oder andere Textdatei)
@@ -796,14 +878,14 @@ elif page == "📄 Upload PDF":
             except UnicodeDecodeError:
                 text = uploaded_file.getvalue().decode('utf-8', errors='replace')
             if not text.strip():
-                st.error("⚠️ This text file appears to be empty.")
+                st.error("This text file appears to be empty.")
                 extraction_failed = True
 
         if text.strip():
-            st.success(f"✅ {len(text)} characters extracted")
+            st.success(f"{len(text)} characters extracted.")
 
             # Preview
-            with st.expander("📖 Text Preview"):
+            with st.expander("Text preview"):
                 st.text(text[:2000] + "..." if len(text) > 2000 else text)
 
             # ================================================================
@@ -811,35 +893,35 @@ elif page == "📄 Upload PDF":
             # ================================================================
 
             if not HAS_ENGINE_V3:
-                st.error("❌ Data Engine v3 not available. Please install data_engine_v3.py.")
+                st.error("Data engine not available (data_engine_v3.py is missing).")
             else:
                 # Process and import in one step!
-                if st.button("🚀 Analyze & import to Airtable", type="primary"):
+                if st.button("Analyze & import to Airtable", type="primary"):
                     progress_container = st.empty()
                     status_container = st.container()
 
                     def update_progress(message):
-                        progress_container.info(f"⏳ {message}")
+                        progress_container.info(message)
 
                     try:
                         # Everything in one pass: Extract + Import
-                        update_progress("Loading database cache...")
+                        update_progress("Loading database (reading existing records)...")
                         time.sleep(0.5)
 
-                        update_progress("Extracting data with AI (30-60 sec)...")
+                        update_progress("Extracting data with AI (this can take 30-60 sec)...")
                         result = process_and_import(text, progress_callback=update_progress)
 
                         progress_container.empty()
 
                         if "error" in result:
-                            st.error(f"❌ Error: {result['error']}")
+                            st.error(result['error'])
                         else:
-                            st.success("✅ Analysis and import completed!")
+                            st.success("Analysis and import completed.")
 
                             # Show extracted data
                             extracted = result.get('extracted_data', {})
 
-                            st.subheader("📊 What was extracted and imported:")
+                            st.markdown('<div class="alv-kicker" style="margin-top:8px">What was added</div>', unsafe_allow_html=True)
 
                             # Statistics
                             col1, col2, col3, col4 = st.columns(4)
@@ -847,30 +929,30 @@ elif page == "📄 Upload PDF":
                                 sources_info = f"{result.get('sources_created', 0)} new"
                                 if result.get('sources_updated', 0):
                                     sources_info += f", {result['sources_updated']} updated"
-                                st.metric("📚 Sources", sources_info)
+                                st.metric("Sources", sources_info)
                             with col2:
                                 foods_info = f"{result.get('interventions_created', 0)} new"
                                 if result.get('interventions_updated', 0):
                                     foods_info += f", {result['interventions_updated']} upd."
-                                st.metric("🥗 Foods", foods_info)
+                                st.metric("Foods", foods_info)
                             with col3:
-                                st.metric("🎯 Claims", result.get('claims_created', 0))
+                                st.metric("Claims", result.get('claims_created', 0))
                             with col4:
-                                st.metric("🔬 Nutrients", result.get('nutrients_created', 0))
+                                st.metric("Nutrients", result.get('nutrients_created', 0))
 
                             # Second row
                             col1, col2, col3, col4 = st.columns(4)
                             with col1:
-                                st.metric("💊 Outcomes", result.get('outcomes_created', 0))
+                                st.metric("Outcomes", result.get('outcomes_created', 0))
                             with col2:
-                                st.metric("📈 Profiles", result.get('profiles_created', 0))
+                                st.metric("Profiles", result.get('profiles_created', 0))
 
                             # Show details
                             st.divider()
 
                             # Source Details
                             if extracted.get('source'):
-                                with st.expander("📚 Source Details", expanded=True):
+                                with st.expander("Source details", expanded=True):
                                     src = extracted['source']
                                     st.write(f"**Title:** {src.get('title', 'N/A')}")
                                     st.write(f"**Type:** {src.get('type', 'N/A')}")
@@ -880,27 +962,27 @@ elif page == "📄 Upload PDF":
 
                             # Foods Details
                             if extracted.get('foods'):
-                                with st.expander(f"🥗 Foods ({len(extracted['foods'])})", expanded=True):
+                                with st.expander(f"Foods ({len(extracted['foods'])})", expanded=True):
                                     for food in extracted['foods']:
                                         st.markdown(f"**{food.get('name')}** ({food.get('category', 'N/A')})")
                                         if food.get('summary'):
                                             st.write(f"  {food['summary'][:200]}...")
                                         if food.get('example_serving'):
-                                            st.write(f"  📏 Serving: {food['example_serving']}")
+                                            st.write(f"  Serving: {food['example_serving']}")
                                         st.write("")
 
                             # Claims Details
                             if extracted.get('claims'):
-                                with st.expander(f"🎯 Health Claims ({len(extracted['claims'])})", expanded=True):
+                                with st.expander(f"Health claims ({len(extracted['claims'])})", expanded=True):
                                     for claim in extracted['claims']:
                                         st.markdown(f"**{claim.get('food_name')}** → {', '.join(claim.get('outcome_names', []))}")
                                         st.write(f"  \"{claim.get('claim_text', '')[:150]}...\"")
-                                        st.write(f"  📊 Evidence: {claim.get('evidence_strength', 'N/A')}")
+                                        st.write(f"  Evidence: {claim.get('evidence_strength', 'N/A')}")
                                         st.write("")
 
                             # Nutrients Details
                             if extracted.get('nutrients'):
-                                with st.expander(f"🔬 Nutrients ({len(extracted['nutrients'])})", expanded=False):
+                                with st.expander(f"Nutrients ({len(extracted['nutrients'])})", expanded=False):
                                     for ns in extracted['nutrients']:
                                         st.write(f"**{ns.get('food_name')}:**")
                                         for n in ns.get('nutrients', []):
@@ -908,24 +990,24 @@ elif page == "📄 Upload PDF":
 
                             # Show errors if any
                             if result.get('errors'):
-                                with st.expander(f"⚠️ Warnings ({len(result['errors'])})", expanded=False):
+                                with st.expander(f"Warnings ({len(result['errors'])})", expanded=False):
                                     for err in result['errors']:
                                         st.warning(err)
 
                             # JSON Download
                             st.divider()
                             st.download_button(
-                                "📥 Complete result as JSON",
+                                "Download result as JSON",
                                 data=json.dumps(result, indent=2, ensure_ascii=False, default=str),
                                 file_name=f"import_result_{uploaded_file.name}.json",
                                 mime="application/json"
                             )
 
-                            st.success("🎉 The database has been expanded! All links were created automatically.")
+                            st.success("The database has been expanded. All links were created automatically.")
 
                     except Exception as e:
                         progress_container.empty()
-                        st.error(f"❌ Critical error: {str(e)}")
+                        st.error(f"Critical error: {str(e)}")
                         import traceback
                         with st.expander("Error details"):
                             st.code(traceback.format_exc())
@@ -934,7 +1016,11 @@ elif page == "📄 Upload PDF":
 # FOOTER
 # =============================================================================
 
-st.divider()
-st.markdown("---")
-st.markdown("*Alive Food Database - Data Engine v2.0*")
-st.markdown(f"[📊 Open Airtable](https://airtable.com/{BASE_ID})")
+st.markdown(f"""
+<div style="margin-top:36px; padding-top:10px; border-top:1px solid var(--hairline);
+     display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;
+     font-size:0.72rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em;">
+  <span>Alive. Food Database · Version 1</span>
+  <span><a href="https://airtable.com/{BASE_ID}" target="_blank" style="color:var(--bordeaux); text-decoration:none;">Open Airtable ›</a> &nbsp;·&nbsp; Ezeyflow × Alive.</span>
+</div>
+""", unsafe_allow_html=True)
