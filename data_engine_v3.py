@@ -73,26 +73,129 @@ TABLES = {
     "Food-Nutrient Profile": "tbl8HbmIrNpNHhrYH"
 }
 
-# Valid options for select fields - ALLE AIRTABLE OPTIONEN
+# Valid options for select fields.
+# WICHTIG: Diese Listen muessen mit den echten Airtable-Choices uebereinstimmen,
+# sonst lehnt Airtable den Wert mit 422 ab (stiller Fehler). Stand: 2026-06-04,
+# abgeglichen mit der Meta-API der Base. _validate_option() faellt immer auf einen
+# gueltigen Wert zurueck, und beim Cache-Load werden diese Listen zusaetzlich mit
+# den live vorhandenen Choices ueberschrieben (refresh_valid_options), damit sie
+# auch bei kuenftigen Schema-Aenderungen aktuell bleiben.
 VALID_OPTIONS = {
-    "source_type": ["Book", "Study", "Article", "Website", "Video"],
+    "source_type": ["Book", "Study", "Article", "Website", "Video", "Podcast"],
     "intervention_type": ["Food", "Food group", "Food pattern", "Lifestyle", "Supplement (optional, future)"],
     "category": ["Fruit", "Vegetable", "Legume", "Whole grain", "Nuts & seeds",
                  "Herbs & spices", "Beverage", "Animal product", "Dietary pattern",
-                 "Sleep", "Physical activity"],
+                 "Sleep", "Physical activity", "Other"],
     "intervention_scope": ["Ingredient", "Food group", "Dietary pattern", "Lifestyle factor"],
     "risk_framing": ["Actively encourage", "Neutral", "Context-dependent", "Limit", "Avoid"],
     "evidence_strength": ["Strong (RCT/Meta-analysis)", "Moderate (Cohort studies)",
                           "Preliminary (Observational)", "Mechanistic (In-vitro)"],
-    # Nur existierende Airtable-Optionen! Mental Health -> Brain/Cognitive
+    # Mental Health -> Brain/Cognitive (Mapping in _validate_option)
     "health_category": ["Cardiovascular", "Brain/Cognitive", "Gut/Digestive",
-                        "Metabolic", "Immune", "Inflammation", "Other"],
+                        "Metabolic", "Immune", "Inflammation", "Longevity", "Other"],
     "nutrient_category": ["Macronutrient", "Micronutrient", "Phytonutrient", "Other"],
     "nutrient_subcategory": ["Vitamin", "Mineral", "Amino Acid", "Fatty Acid",
-                             "Fiber", "Polyphenol", "Carotenoid"],
+                             "Fiber", "Polyphenol", "Carbohydrate", "Other"],
     "unit": ["g", "mg", "mcg", "IU"],
-    "confidence": ["High", "Medium", "Low"]
+    "confidence": ["High", "Medium", "Low"],
+    # Multi-Select: kuratierte, kanonische Choices (kein Junk anlegen).
+    "nutritional_role": ["Protein source", "Fiber source", "Healthy fat source",
+                         "Carbohydrate source", "Micronutrient-dense", "Antioxidant-rich"],
+    "culinary_role": ["Base ingredient", "Topping", "Seasoning", "Beverage", "Snack", "Pattern / Habit"],
 }
+
+# Felder die als Select an Airtable gehen -> Field-Name in Airtable.
+# Wird von refresh_valid_options() genutzt um VALID_OPTIONS live abzugleichen.
+SELECT_FIELD_MAP = {
+    "Sources": {"Source Type": "source_type"},
+    "Interventions": {
+        "Type (STRICT)": "intervention_type",
+        "Category": "category",
+        "Intervention scope": "intervention_scope",
+        "Risk framing (editorial)": "risk_framing",
+    },
+    "Outcomes": {"Health Category": "health_category"},
+    "Claims": {"Evidence Strength": "evidence_strength"},
+    "Nutrients": {"Category": "nutrient_category", "Subcategory": "nutrient_subcategory", "Unit": "unit"},
+    "Food-Nutrient Profile": {"Confidence Level": "confidence", "Unit": "unit"},
+}
+
+# Mapping: KI-Werte -> kanonische Multi-Select-Choices (sonst Junk-Optionen).
+NUTRITIONAL_ROLE_MAP = {
+    "protein": "Protein source", "protein source": "Protein source",
+    "fiber": "Fiber source", "fibre": "Fiber source", "dietary fiber": "Fiber source",
+    "soluble fiber": "Fiber source", "fiber source": "Fiber source",
+    "omega-3": "Healthy fat source", "omega 3": "Healthy fat source",
+    "healthy fat": "Healthy fat source", "healthy fats": "Healthy fat source",
+    "fat": "Healthy fat source", "fatty acid": "Healthy fat source",
+    "monounsaturated": "Healthy fat source", "polyunsaturated": "Healthy fat source",
+    "carbohydrate": "Carbohydrate source", "carbohydrates": "Carbohydrate source",
+    "complex carbohydrates": "Carbohydrate source", "carbs": "Carbohydrate source",
+    "vitamin": "Micronutrient-dense", "vitamins": "Micronutrient-dense",
+    "mineral": "Micronutrient-dense", "minerals": "Micronutrient-dense",
+    "micronutrient": "Micronutrient-dense", "micronutrients": "Micronutrient-dense",
+    "vitamin c": "Micronutrient-dense", "potassium": "Micronutrient-dense",
+    "calcium": "Micronutrient-dense", "iron": "Micronutrient-dense",
+    "antioxidant": "Antioxidant-rich", "antioxidants": "Antioxidant-rich",
+    "polyphenol": "Antioxidant-rich", "polyphenols": "Antioxidant-rich",
+    "anthocyanin": "Antioxidant-rich", "anthocyanins": "Antioxidant-rich",
+    "flavonoid": "Antioxidant-rich", "flavonoids": "Antioxidant-rich",
+    "carotenoid": "Antioxidant-rich",
+}
+CULINARY_ROLE_MAP = {
+    "base ingredient": "Base ingredient", "main dish": "Base ingredient",
+    "main": "Base ingredient", "side dish": "Base ingredient", "base": "Base ingredient",
+    "topping": "Topping", "garnish": "Topping",
+    "seasoning": "Seasoning", "spice": "Seasoning", "herb": "Seasoning",
+    "beverage": "Beverage", "drink": "Beverage", "smoothie ingredient": "Beverage",
+    "smoothie": "Beverage",
+    "snack": "Snack",
+    "pattern": "Pattern / Habit", "habit": "Pattern / Habit", "lifestyle": "Pattern / Habit",
+}
+
+# Platzhalter-Strings die die KI manchmal liefert - sollen NICHT geschrieben werden.
+PLACEHOLDER_VALUES = {
+    "", "n/a", "na", "none", "null", "unknown", "unbekannt", "nicht angegeben",
+    "not available", "not specified", "keine angabe", "k.a.", "-", "--", "tbd", "?",
+}
+
+
+def clean_text(value):
+    """Gibt einen sauberen String zurueck oder None, wenn es ein Platzhalter/leer ist."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text.lower() in PLACEHOLDER_VALUES:
+        return None
+    return text
+
+
+def map_multiselect(values, mapping):
+    """Mappt eine KI-Werteliste auf kanonische Multi-Select-Choices.
+
+    Nicht zuordenbare Werte werden verworfen (kein Junk in Airtable). Reihenfolge
+    bleibt erhalten, Duplikate werden entfernt. Gibt eine Liste gueltiger Choices.
+    """
+    if not values:
+        return []
+    if isinstance(values, str):
+        values = [values]
+    result = []
+    for v in values:
+        cleaned = clean_text(v)
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        canonical = mapping.get(key)
+        if not canonical:
+            # Teilstring-Treffer als Fallback (z.B. "high in fiber" -> "fiber")
+            for mk, mv in mapping.items():
+                if mk in key:
+                    canonical = mv
+                    break
+        if canonical and canonical not in result:
+            result.append(canonical)
+    return result
 
 
 # =============================================================================
@@ -140,6 +243,33 @@ def get_all_records(table_id: str) -> List[Dict]:
     return all_records
 
 
+# Optionaler Fehler-Sink: eine Liste, in die detaillierte API-Fehler wandern,
+# damit sie in der UI sichtbar werden statt nur auf stderr zu landen.
+_ERROR_SINK = None
+
+
+def _record_error(msg: str):
+    """Loggt einen Fehler nach stderr UND in den optionalen Sink (fuer die UI)."""
+    print(msg)
+    if _ERROR_SINK is not None:
+        _ERROR_SINK.append(msg)
+
+
+def _short_api_error(resp) -> str:
+    """Extrahiert eine knappe, lesbare Fehlermeldung aus einer Airtable-Antwort."""
+    try:
+        err = resp.json().get("error", {})
+        if isinstance(err, dict):
+            etype = err.get("type", "")
+            emsg = err.get("message", "")
+            detail = f"{etype}: {emsg}".strip(": ").strip()
+        else:
+            detail = str(err)
+    except Exception:
+        detail = resp.text[:200]
+    return f"HTTP {resp.status_code} - {detail}"
+
+
 def create_record(table_id: str, fields: Dict) -> Optional[str]:
     """Erstellt einen neuen Record und gibt die ID zurueck"""
     # Refresh headers in case token was loaded later (Streamlit secrets)
@@ -150,20 +280,24 @@ def create_record(table_id: str, fields: Dict) -> Optional[str]:
     }
 
     if not current_token:
-        print("ERROR: AIRTABLE_TOKEN is not set!")
+        _record_error("AIRTABLE_TOKEN ist nicht gesetzt - keine Verbindung zu Airtable moeglich.")
         return None
 
-    resp = requests.post(
-        f"https://api.airtable.com/v0/{BASE_ID}/{table_id}",
-        headers=current_headers,
-        json={"fields": fields}
-    )
+    try:
+        resp = requests.post(
+            f"https://api.airtable.com/v0/{BASE_ID}/{table_id}",
+            headers=current_headers,
+            json={"fields": fields},
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        _record_error(f"Netzwerkfehler beim Schreiben: {e}")
+        return None
 
     if resp.status_code == 200:
         return resp.json().get('id')
     else:
-        error_msg = f"API Error {resp.status_code}: {resp.text[:300]}"
-        print(error_msg)
+        _record_error(_short_api_error(resp))
         return None
 
 
@@ -177,17 +311,22 @@ def update_record(table_id: str, record_id: str, fields: Dict) -> bool:
     }
 
     if not current_token:
-        print("ERROR: AIRTABLE_TOKEN is not set!")
+        _record_error("AIRTABLE_TOKEN ist nicht gesetzt - keine Verbindung zu Airtable moeglich.")
         return False
 
-    resp = requests.patch(
-        f"https://api.airtable.com/v0/{BASE_ID}/{table_id}/{record_id}",
-        headers=current_headers,
-        json={"fields": fields}
-    )
+    try:
+        resp = requests.patch(
+            f"https://api.airtable.com/v0/{BASE_ID}/{table_id}/{record_id}",
+            headers=current_headers,
+            json={"fields": fields},
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        _record_error(f"Netzwerkfehler beim Aktualisieren: {e}")
+        return False
 
     if resp.status_code != 200:
-        print(f"Update error: {resp.status_code} - {resp.text[:200]}")
+        _record_error(_short_api_error(resp))
 
     return resp.status_code == 200
 
@@ -248,6 +387,44 @@ def normalize_name(name: str) -> str:
     return ' '.join(normalized_words)
 
 
+def refresh_valid_options():
+    """Gleicht VALID_OPTIONS mit den echten Airtable-Choices ab (Meta-API).
+
+    Verhindert stille 422er, wenn sich das Schema aendert. Multi-Select-Rollen
+    (kuratiert) werden bewusst NICHT ueberschrieben - dort wollen wir keinen Junk.
+    Schlaegt der Call fehl, behalten wir die hartkodierten Defaults.
+    """
+    token = get_secret("AIRTABLE_TOKEN")
+    if not token:
+        return
+    try:
+        resp = requests.get(
+            f"https://api.airtable.com/v0/meta/bases/{BASE_ID}/tables",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            print(f"  (Schema-Abgleich uebersprungen: HTTP {resp.status_code})")
+            return
+        by_name = {t["name"]: t for t in resp.json().get("tables", [])}
+        for table_id_name, fields_map in SELECT_FIELD_MAP.items():
+            # SELECT_FIELD_MAP nutzt die Klartext-Tabellennamen aus TABLES-Keys
+            table = by_name.get(table_id_name) or by_name.get(table_id_name.replace("-", "–"))
+            if not table:
+                continue
+            field_choices = {}
+            for f in table.get("fields", []):
+                choices = f.get("options", {}).get("choices")
+                if choices:
+                    field_choices[f["name"]] = [c["name"] for c in choices]
+            for field_name, opt_key in fields_map.items():
+                if field_name in field_choices and field_choices[field_name]:
+                    VALID_OPTIONS[opt_key] = field_choices[field_name]
+        print("  Schema-Optionen mit Airtable abgeglichen.")
+    except requests.RequestException as e:
+        print(f"  (Schema-Abgleich fehlgeschlagen: {e})")
+
+
 # =============================================================================
 # DATABASE CACHE - Haelt alle existierenden Records im Speicher
 # =============================================================================
@@ -267,6 +444,9 @@ class DatabaseCache:
     def load(self):
         """Laedt alle existierenden Records"""
         print("Lade Datenbank-Cache...")
+
+        # Select-Optionen mit dem echten Schema abgleichen (verhindert stille 422er)
+        refresh_valid_options()
 
         # Sources
         for r in get_all_records(TABLES["Sources"]):
@@ -426,23 +606,27 @@ def extract_with_ai(text: str, model: str = "gpt-4o-mini") -> Optional[Dict]:
     if len(text) > 60000:
         text = text[:60000]
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": "Du bist ein Ernaehrungswissenschaftler. Extrahiere ALLE Daten praezise. Antworte NUR mit validem JSON."
-            },
-            {"role": "user", "content": EXTRACTION_PROMPT + text}
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.1,
-        max_tokens=4000
-    )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Du bist ein Ernaehrungswissenschaftler. Extrahiere ALLE Daten praezise. Antworte NUR mit validem JSON."
+                },
+                {"role": "user", "content": EXTRACTION_PROMPT + text}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.1,
+            max_tokens=4000
+        )
+    except Exception as e:
+        print(f"OpenAI API Fehler: {e}")
+        return None
 
     try:
         return json.loads(response.choices[0].message.content)
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, AttributeError, IndexError) as e:
         print(f"JSON Parse Error: {e}")
         return None
 
@@ -479,28 +663,34 @@ class DataImporter:
 
     def import_all(self, data: Dict) -> Dict:
         """Importiert alle extrahierten Daten"""
+        global _ERROR_SINK
+        # Detaillierte API-Fehler landen ab jetzt in den Stats (sichtbar in der UI)
+        _ERROR_SINK = self.stats["errors"]
         print("\n" + "="*60)
         print("STARTE IMPORT")
         print("="*60)
 
-        # 1. Source erstellen/finden
-        self._import_source(data.get('source', {}))
+        try:
+            # 1. Source erstellen/finden
+            self._import_source(data.get('source', {}))
 
-        # 2. Health Outcomes erstellen/finden
-        for outcome in data.get('health_outcomes', []):
-            self._import_outcome(outcome)
+            # 2. Health Outcomes erstellen/finden
+            for outcome in data.get('health_outcomes', []):
+                self._import_outcome(outcome)
 
-        # 3. Foods (Interventions) erstellen/aktualisieren
-        for food in data.get('foods', []):
-            self._import_food(food)
+            # 3. Foods (Interventions) erstellen/aktualisieren
+            for food in data.get('foods', []):
+                self._import_food(food)
 
-        # 4. Claims erstellen
-        for claim in data.get('claims', []):
-            self._import_claim(claim)
+            # 4. Claims erstellen
+            for claim in data.get('claims', []):
+                self._import_claim(claim)
 
-        # 5. Nutrients und Profiles erstellen
-        for nutrient_set in data.get('nutrients', []):
-            self._import_nutrients(nutrient_set)
+            # 5. Nutrients und Profiles erstellen
+            for nutrient_set in data.get('nutrients', []):
+                self._import_nutrients(nutrient_set)
+        finally:
+            _ERROR_SINK = None
 
         print("\n" + "="*60)
         print("IMPORT ABGESCHLOSSEN")
@@ -523,18 +713,21 @@ class DataImporter:
             self.source_title = title
             print(f"  -> Existiert bereits (ID: {self.source_id[:10]}...)")
 
-            # Aktualisiere fehlende Felder
+            # Aktualisiere fehlende Felder (nur echte Werte, keine Platzhalter)
             updates = {}
             existing_fields = existing['fields']
 
-            if not existing_fields.get('Author(s)') and source_data.get('authors'):
-                updates['Author(s)'] = source_data['authors']
+            authors = clean_text(source_data.get('authors'))
+            journal = clean_text(source_data.get('journal'))
+            notes = clean_text(source_data.get('notes'))
+            if not existing_fields.get('Author(s)') and authors:
+                updates['Author(s)'] = authors
             if not existing_fields.get('Year') and source_data.get('year'):
                 updates['Year'] = source_data['year']
-            if not existing_fields.get('Publisher/Journal') and source_data.get('journal'):
-                updates['Publisher/Journal'] = source_data['journal']
-            if not existing_fields.get('Notes') and source_data.get('notes'):
-                updates['Notes'] = source_data['notes']
+            if not existing_fields.get('Publisher/Journal') and journal:
+                updates['Publisher/Journal'] = journal
+            if not existing_fields.get('Notes') and notes:
+                updates['Notes'] = notes
 
             if updates:
                 update_record(TABLES["Sources"], self.source_id, updates)
@@ -548,21 +741,27 @@ class DataImporter:
             "Source Type": self._validate_option(source_data.get('type', 'Study'), 'source_type'),
         }
 
-        # Optionale Felder
-        if source_data.get('authors'):
-            fields['Author(s)'] = source_data['authors']
+        # Optionale Felder (nur echte Werte, keine Platzhalter wie "Unbekannt")
+        if clean_text(source_data.get('authors')):
+            fields['Author(s)'] = clean_text(source_data['authors'])
         if source_data.get('year'):
-            fields['Year'] = int(source_data['year'])
-        if source_data.get('journal'):
-            fields['Publisher/Journal'] = source_data['journal']
-        if source_data.get('doi'):
-            fields['ISBN/DOI'] = source_data['doi']
-        if source_data.get('url'):
-            fields['URL'] = source_data['url']
+            try:
+                fields['Year'] = int(source_data['year'])
+            except (ValueError, TypeError):
+                pass
+        if clean_text(source_data.get('journal')):
+            fields['Publisher/Journal'] = clean_text(source_data['journal'])
+        if clean_text(source_data.get('doi')):
+            fields['ISBN/DOI'] = clean_text(source_data['doi'])
+        if clean_text(source_data.get('url')):
+            fields['URL'] = clean_text(source_data['url'])
         if source_data.get('total_pages'):
-            fields['Total Pages'] = int(source_data['total_pages'])
-        if source_data.get('notes'):
-            fields['Notes'] = source_data['notes']
+            try:
+                fields['Total Pages'] = int(source_data['total_pages'])
+            except (ValueError, TypeError):
+                pass
+        if clean_text(source_data.get('notes')):
+            fields['Notes'] = clean_text(source_data['notes'])
 
         self.source_id = create_record(TABLES["Sources"], fields)
         if self.source_id:
@@ -594,8 +793,8 @@ class DataImporter:
 
         if outcome_data.get('category'):
             fields['Health Category'] = self._validate_option(outcome_data['category'], 'health_category')
-        if outcome_data.get('notes'):
-            fields['Notes'] = outcome_data['notes']
+        if clean_text(outcome_data.get('notes')):
+            fields['Notes'] = clean_text(outcome_data['notes'])
 
         outcome_id = create_record(TABLES["Outcomes"], fields)
         if outcome_id:
@@ -632,15 +831,29 @@ class DataImporter:
                 if self.source_id not in existing_sources:
                     updates['Discovery source (book / resource)'] = existing_sources + [self.source_id]
 
-            # Ergaenze fehlende Felder
-            if not existing_fields.get('Short summary (human-readable)') and food_data.get('summary'):
-                updates['Short summary (human-readable)'] = food_data['summary']
-            if not existing_fields.get('Example serving') and food_data.get('example_serving'):
-                updates['Example serving'] = food_data['example_serving']
-            if not existing_fields.get('Typical use cases') and food_data.get('typical_uses'):
-                updates['Typical use cases'] = food_data['typical_uses']
-            if not existing_fields.get('Preparation notes') and food_data.get('preparation_notes'):
-                updates['Preparation notes'] = food_data['preparation_notes']
+            # Ergaenze fehlende Felder (nur echte Werte, keine Platzhalter)
+            summary = clean_text(food_data.get('summary'))
+            serving = clean_text(food_data.get('example_serving'))
+            uses = clean_text(food_data.get('typical_uses'))
+            prep = clean_text(food_data.get('preparation_notes'))
+            if not existing_fields.get('Short summary (human-readable)') and summary:
+                updates['Short summary (human-readable)'] = summary
+            if not existing_fields.get('Example serving') and serving:
+                updates['Example serving'] = serving
+            if not existing_fields.get('Typical use cases') and uses:
+                updates['Typical use cases'] = uses
+            if not existing_fields.get('Preparation notes') and prep:
+                updates['Preparation notes'] = prep
+
+            # Rollen-Felder nachfuellen wenn noch leer (macht bestehende Foods reicher)
+            if not existing_fields.get('Nutritional role (high-level)'):
+                nutri_roles = map_multiselect(food_data.get('nutritional_roles'), NUTRITIONAL_ROLE_MAP)
+                if nutri_roles:
+                    updates['Nutritional role (high-level)'] = nutri_roles
+            if not existing_fields.get('Culinary role'):
+                culinary = map_multiselect(food_data.get('culinary_roles'), CULINARY_ROLE_MAP)
+                if culinary:
+                    updates['Culinary role'] = culinary
 
             # Ergaenze Discovery Pages
             existing_pages = existing_fields.get('Discovery pages', '')
@@ -685,27 +898,27 @@ class DataImporter:
         if food_data.get('risk_framing'):
             fields['Risk framing (editorial)'] = self._validate_option(food_data['risk_framing'], 'risk_framing')
 
-        # Text Felder
-        if food_data.get('example_serving'):
-            fields['Example serving'] = food_data['example_serving']
-        if food_data.get('typical_uses'):
-            fields['Typical use cases'] = food_data['typical_uses']
-        if food_data.get('preparation_notes'):
-            fields['Preparation notes'] = food_data['preparation_notes']
-        if food_data.get('summary'):
-            fields['Short summary (human-readable)'] = food_data['summary']
-        if food_data.get('internal_notes'):
-            fields['Internal notes'] = food_data['internal_notes']
-        if food_data.get('discovery_pages'):
-            fields['Discovery pages'] = food_data['discovery_pages']
+        # Text Felder (nur echte Werte, keine Platzhalter)
+        if clean_text(food_data.get('example_serving')):
+            fields['Example serving'] = clean_text(food_data['example_serving'])
+        if clean_text(food_data.get('typical_uses')):
+            fields['Typical use cases'] = clean_text(food_data['typical_uses'])
+        if clean_text(food_data.get('preparation_notes')):
+            fields['Preparation notes'] = clean_text(food_data['preparation_notes'])
+        if clean_text(food_data.get('summary')):
+            fields['Short summary (human-readable)'] = clean_text(food_data['summary'])
+        if clean_text(food_data.get('internal_notes')):
+            fields['Internal notes'] = clean_text(food_data['internal_notes'])
+        if clean_text(food_data.get('discovery_pages')):
+            fields['Discovery pages'] = clean_text(food_data['discovery_pages'])
 
-        # Multi-Select Felder - NUR gueltige Optionen verwenden
-        # Diese Felder sind problematisch weil die KI oft ungueltige Werte generiert
-        # Daher werden sie erstmal auskommentiert bis die gueltigen Optionen bekannt sind
-        # if food_data.get('nutritional_roles'):
-        #     fields['Nutritional role (high-level)'] = food_data['nutritional_roles'][:5]
-        # if food_data.get('culinary_roles'):
-        #     fields['Culinary role'] = food_data['culinary_roles'][:5]
+        # Multi-Select Felder - KI-Werte auf kanonische Choices mappen (kein Junk).
+        nutri_roles = map_multiselect(food_data.get('nutritional_roles'), NUTRITIONAL_ROLE_MAP)
+        if nutri_roles:
+            fields['Nutritional role (high-level)'] = nutri_roles
+        culinary = map_multiselect(food_data.get('culinary_roles'), CULINARY_ROLE_MAP)
+        if culinary:
+            fields['Culinary role'] = culinary
 
         # Source verknuepfen
         if self.source_id:
@@ -805,11 +1018,11 @@ class DataImporter:
             fields["Health Outcome"] = outcome_ids
         if self.source_id:
             fields["Source"] = [self.source_id]
-        if claim_data.get('page_reference'):
-            fields["Page Reference"] = claim_data['page_reference']
+        if clean_text(claim_data.get('page_reference')):
+            fields["Page Reference"] = clean_text(claim_data['page_reference'])
         # Quantified Effect - nur wenn vorhanden (z.B. "30g/day for 8 weeks -> 25% reduction")
-        if claim_data.get('quantified_effect'):
-            fields["Quantified Effect"] = claim_data['quantified_effect']
+        if clean_text(claim_data.get('quantified_effect')):
+            fields["Quantified Effect"] = clean_text(claim_data['quantified_effect'])
 
         claim_id = create_record(TABLES["Claims"], fields)
         if claim_id:
@@ -896,8 +1109,8 @@ class DataImporter:
                     fields['Daily Value'] = float(nutrient_data['daily_value_percent'])
 
                 # Health Benefits
-                if nutrient_data.get('health_benefits'):
-                    fields['Health Benefits'] = nutrient_data['health_benefits']
+                if clean_text(nutrient_data.get('health_benefits')):
+                    fields['Health Benefits'] = clean_text(nutrient_data['health_benefits'])
 
                 nutrient_id = create_record(TABLES["Nutrients"], fields)
                 if nutrient_id:
@@ -1076,23 +1289,33 @@ def process_and_import(text: str, progress_callback=None) -> Dict:
         Dict mit Statistiken
     """
     if progress_callback:
-        progress_callback("Lade Datenbank-Cache...")
+        progress_callback("Loading database (reading existing records)...")
 
     # Cache laden
     cache = DatabaseCache()
     cache.load()
 
     if progress_callback:
-        progress_callback("Extrahiere Daten mit KI...")
+        progress_callback("Extracting data with AI (this can take 30-60 sec)...")
 
     # Mit KI extrahieren
     extracted = extract_with_ai(text)
 
     if not extracted:
-        return {"error": "KI-Extraktion fehlgeschlagen"}
+        return {"error": "AI extraction failed. The OpenAI request did not return valid data. "
+                         "Please check the OpenAI API key/quota and try again."}
+
+    # Pruefen ob ueberhaupt etwas Verwertbares drin ist
+    n_foods = len(extracted.get('foods', []) or [])
+    n_claims = len(extracted.get('claims', []) or [])
+    n_nutrients = len(extracted.get('nutrients', []) or [])
+    if n_foods == 0 and n_claims == 0 and n_nutrients == 0:
+        return {"error": "No foods, health claims or nutrient data could be extracted from this document. "
+                         "Make sure it actually contains nutrition/health content (not just a scan or images).",
+                "extracted_data": extracted}
 
     if progress_callback:
-        progress_callback("Importiere in Airtable...")
+        progress_callback("Importing into Airtable...")
 
     # Importieren
     importer = DataImporter(cache)

@@ -755,26 +755,51 @@ elif page == "📄 Upload PDF":
 
         # Text extrahieren
         text = ""
+        extraction_failed = False
 
-        if uploaded_file.name.endswith('.pdf'):
+        if uploaded_file.name.lower().endswith('.pdf'):
             if not HAS_PDF:
-                st.error("PDF support not installed. Please install pdfplumber.")
+                st.error("PDF support is not installed (pdfplumber missing).")
+                extraction_failed = True
             else:
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                    tmp.write(uploaded_file.getvalue())
-                    tmp_path = tmp.name
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+                        tmp.write(uploaded_file.getvalue())
+                        tmp_path = tmp.name
 
-                with pdfplumber.open(tmp_path) as pdf:
-                    for page in pdf.pages:
-                        page_text = page.extract_text()
-                        if page_text:
-                            text += page_text + "\n\n"
+                    total_pages = 0
+                    with pdfplumber.open(tmp_path) as pdf:
+                        total_pages = len(pdf.pages)
+                        for page in pdf.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text += page_text + "\n\n"
 
-                os.unlink(tmp_path)
+                    os.unlink(tmp_path)
+
+                    if not text.strip():
+                        st.error(
+                            f"⚠️ No readable text found in this PDF ({total_pages} page(s)). "
+                            "It looks like a scanned or image-only PDF without a text layer, "
+                            "so there is nothing the AI can read.\n\n"
+                            "**What to do:** upload a text-based PDF, or copy the text into a "
+                            "`.txt` file and upload that instead."
+                        )
+                        extraction_failed = True
+                except Exception as e:
+                    st.error(f"❌ Could not read this PDF: {e}")
+                    extraction_failed = True
         else:
-            text = uploaded_file.getvalue().decode('utf-8')
+            # TXT (oder andere Textdatei)
+            try:
+                text = uploaded_file.getvalue().decode('utf-8')
+            except UnicodeDecodeError:
+                text = uploaded_file.getvalue().decode('utf-8', errors='replace')
+            if not text.strip():
+                st.error("⚠️ This text file appears to be empty.")
+                extraction_failed = True
 
-        if text:
+        if text.strip():
             st.success(f"✅ {len(text)} characters extracted")
 
             # Preview
