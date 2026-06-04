@@ -111,6 +111,13 @@ st.markdown("""
 html, body, .stApp, button, input, textarea, [class^="st-"], [class*=" st-"]{
   font-family:'Figtree',-apple-system,BlinkMacSystemFont,sans-serif;
 }
+/* Material icons must keep their icon font, otherwise ligatures render as words
+   (e.g. the file-uploader icon showing the text "upload"). */
+[data-testid="stIconMaterial"], .material-icons, .material-icons-outlined,
+[class*="material-symbols"]{
+  font-family:'Material Symbols Rounded','Material Symbols Outlined','Material Icons' !important;
+  font-feature-settings:'liga' !important;
+}
 .stApp{ background:var(--cream); color:var(--ink); }
 .block-container{ padding-top:2.2rem; max-width:1080px; }
 section[data-testid="stSidebar"]{ background:var(--cream-deep); border-right:1px solid var(--hairline); }
