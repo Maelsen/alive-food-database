@@ -106,7 +106,7 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap');
 :root{
   --bordeaux:#A03A2C; --bordeaux-deep:#8a3024; --olive:#6b7d5c; --ink:#2c2826;
-  --muted:#6e6b66; --hairline:#e5e2da; --cream:#faf9f5; --cream-deep:#f3f1e9;
+  --muted:#6e6b66; --hairline:#e7e5e0; --cream:#ffffff; --cream-deep:#fafafa;
 }
 html, body, .stApp, button, input, textarea, [class^="st-"], [class*=" st-"]{
   font-family:'Figtree',-apple-system,BlinkMacSystemFont,sans-serif;
