@@ -8,7 +8,9 @@ Start with: streamlit run app.py
 
 import streamlit as st
 import os
+import io
 import json
+import base64
 import requests
 import tempfile
 import time
@@ -21,12 +23,15 @@ try:
 except ImportError:
     pass
 
-# OpenAI
+# Claude (Anthropic)
 try:
-    from openai import OpenAI
-    HAS_OPENAI = True
+    import anthropic
+    HAS_ANTHROPIC = True
 except ImportError:
-    HAS_OPENAI = False
+    HAS_ANTHROPIC = False
+
+# Claude-Modell (Vision-faehig, schnell, guenstig)
+CLAUDE_MODEL = "claude-haiku-4-5"
 
 # PDF Support
 try:
@@ -34,6 +39,13 @@ try:
     HAS_PDF = True
 except ImportError:
     HAS_PDF = False
+
+# PyMuPDF (fitz) - renders scanned PDFs to images so they can be OCR'd via vision
+try:
+    import fitz  # PyMuPDF
+    HAS_FITZ = True
+except ImportError:
+    HAS_FITZ = False
 
 # Data Engine v3 - Neue intelligente Import-Engine
 try:
@@ -75,7 +87,6 @@ def get_headers():
 
 # Legacy - for backwards compatibility
 AIRTABLE_TOKEN = None  # Will be loaded dynamically
-OPENAI_API_KEY = None  # Will be loaded dynamically
 HEADERS = None  # Will be loaded dynamically
 
 TABLES = {
@@ -361,26 +372,26 @@ def find_foods_for_goal(db, health_goal):
 
 
 def generate_recipe_recommendation(foods, health_goal):
-    """Generates AI recommendation"""
-    openai_key = get_secret("OPENAI_API_KEY")
-    if not HAS_OPENAI or not openai_key:
-        return "OpenAI API Key not configured."
+    """Generates a recipe recommendation with Claude."""
+    key = get_secret("ANTHROPIC_API_KEY")
+    if not HAS_ANTHROPIC or not key:
+        return "Claude API key not configured."
 
     if not foods:
         return f"No foods found for '{health_goal}' in the database."
 
-    client = OpenAI(api_key=openai_key)
-
+    client = anthropic.Anthropic(api_key=key)
     foods_context = json.dumps(foods[:8], indent=2, ensure_ascii=False)
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": """You are a nutritionist for a restaurant.
-Based on the database, you recommend ingredients for a dish.
-Answer in English, practical and culinarily inspiring.
-Mention specific portion sizes and why each ingredient is beneficial."""},
-            {"role": "user", "content": f"""The guest wants a dish for: {health_goal}
+    try:
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=1500,
+            system=("You are a nutritionist for a restaurant. Based on the database, "
+                    "you recommend ingredients for a dish. Answer in English, practical "
+                    "and culinarily inspiring. Mention specific portion sizes and why each "
+                    "ingredient is beneficial."),
+            messages=[{"role": "user", "content": f"""The guest wants a dish for: {health_goal}
 
 Available ingredients from our database:
 {foods_context}
@@ -388,12 +399,12 @@ Available ingredients from our database:
 Create a recommendation with:
 1. Top 3-5 recommended ingredients with reasoning
 2. A concrete dish idea
-3. Nutrient highlights"""}
-        ],
-        temperature=0.7
-    )
+3. Nutrient highlights"""}],
+        )
+    except Exception as e:
+        return f"Could not generate a recommendation: {e}"
 
-    return response.choices[0].message.content
+    return "".join(b.text for b in response.content if b.type == "text")
 
 
 def normalize_name(name):
@@ -670,62 +681,63 @@ def save_to_airtable(extracted_data):
     return stats
 
 
-def process_pdf_with_ai(text, model="gpt-4o-mini"):
-    """Verarbeitet Text mit KI"""
-    if not HAS_OPENAI or not OPENAI_API_KEY:
-        return None
+# =============================================================================
+# OCR FALLBACK - reads scanned / image-only PDFs via the Claude vision model
+# =============================================================================
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+def ocr_pdf_with_vision(pdf_bytes, max_pages=15, progress=None):
+    """Renders PDF pages to images and transcribes the text with a vision model.
 
-    # Kürzen wenn zu lang
-    if len(text) > 50000:
-        text = text[:50000]
+    Used when a PDF has no extractable text layer (scanned or photographed pages).
+    Returns the transcribed text, or "" if it could not read anything.
+    """
+    if not HAS_FITZ:
+        return ""
+    key = get_secret("ANTHROPIC_API_KEY")
+    if not HAS_ANTHROPIC or not key:
+        return ""
 
-    prompt = """Analysiere den folgenden Text und extrahiere ALLE Health Claims und Nährstoffdaten.
+    try:
+        client = anthropic.Anthropic(api_key=key)
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as e:
+        print(f"OCR: could not open PDF: {e}")
+        return ""
 
-Antworte NUR mit validem JSON in diesem Format:
-{
-    "source_title": "Titel des Dokuments",
-    "source_type": "Study/Book/Article",
-    "foods": [
-        {
-            "name": "Food Name",
-            "category": "Fruit/Vegetable/Nuts & seeds/etc.",
-            "summary": "Kurze Beschreibung"
-        }
-    ],
-    "claims": [
-        {
-            "food_name": "Food Name",
-            "health_outcomes": ["Heart Health", "Brain Health"],
-            "claim_text": "Der eigentliche Health Claim",
-            "evidence_strength": "Strong (RCT/Meta-analysis)"
-        }
-    ],
-    "nutrient_data": [
-        {
-            "food_name": "Food Name",
-            "nutrients": [
-                {"name": "Protein", "amount_per_100g": 18.3, "unit": "g"}
-            ]
-        }
-    ]
-}
+    pages_text = []
+    n_pages = min(len(doc), max_pages)
+    for i in range(n_pages):
+        if progress:
+            progress(f"Scanned PDF detected. Reading page {i + 1} of {n_pages} with vision OCR...")
+        try:
+            pix = doc[i].get_pixmap(dpi=170)
+            img_b64 = base64.b64encode(pix.tobytes("png")).decode()
+            resp = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=2000,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image",
+                         "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
+                        {"type": "text",
+                         "text": "Transcribe ALL text from this document page exactly as written. "
+                                 "Output only the transcribed text, no commentary. "
+                                 "If the page contains no readable text, output nothing."},
+                    ]
+                }],
+            )
+            page_text = "".join(b.text for b in resp.content if b.type == "text").strip()
+            if page_text:
+                pages_text.append(page_text)
+        except Exception as e:
+            print(f"OCR: vision error on page {i + 1}: {e}")
 
-TEXT ZUM ANALYSIEREN:
-"""
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "Du bist ein Ernährungswissenschaftler. Antworte immer mit validem JSON."},
-            {"role": "user", "content": prompt + text}
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.1
-    )
-
-    return json.loads(response.choices[0].message.content)
+    try:
+        doc.close()
+    except Exception:
+        pass
+    return "\n\n".join(pages_text)
 
 
 # =============================================================================

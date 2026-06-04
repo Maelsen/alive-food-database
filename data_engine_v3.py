@@ -23,10 +23,10 @@ except ImportError:
     pass
 
 try:
-    from openai import OpenAI
-    HAS_OPENAI = True
+    import anthropic
+    HAS_ANTHROPIC = True
 except ImportError:
-    HAS_OPENAI = False
+    HAS_ANTHROPIC = False
 
 # =============================================================================
 # CONFIGURATION - Supports both environment variables AND Streamlit secrets
@@ -56,7 +56,10 @@ def get_secret(key, default=None):
 
 AIRTABLE_TOKEN = get_secret("AIRTABLE_TOKEN")
 BASE_ID = get_secret("AIRTABLE_BASE_ID", "appOFvKsPdHQQBOQ9")
-OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
+ANTHROPIC_API_KEY = get_secret("ANTHROPIC_API_KEY")
+
+# Claude-Modell fuer Extraktion/OCR (Vision-faehig, schnell, guenstig)
+CLAUDE_MODEL = "claude-haiku-4-5"
 
 HEADERS = {
     "Authorization": f"Bearer {AIRTABLE_TOKEN}",
@@ -594,41 +597,61 @@ TEXT ZUM ANALYSIEREN:
 """
 
 
-def extract_with_ai(text: str, model: str = "gpt-4o-mini") -> Optional[Dict]:
-    """Extrahiert alle Daten aus Text mit KI"""
-    if not HAS_OPENAI or not OPENAI_API_KEY:
-        print("OpenAI nicht verfuegbar")
+def _parse_json(raw: str) -> Optional[Dict]:
+    """Parst JSON aus einer Claude-Antwort, toleriert ```-Codefences und Vorspann."""
+    if not raw:
+        return None
+    s = raw.strip()
+    # ```json ... ``` Fences entfernen
+    if "```" in s:
+        parts = s.split("```")
+        # nimm den laengsten Block, der nach einem Fence kommt
+        candidate = max((p for p in parts), key=len)
+        s = candidate
+        if s.lstrip().lower().startswith("json"):
+            s = s.lstrip()[4:]
+    # auf das erste { bis letzte } eingrenzen
+    start, end = s.find("{"), s.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        s = s[start:end + 1]
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError as e:
+        print(f"JSON Parse Error: {e}")
         return None
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+
+def extract_with_ai(text: str, model: str = CLAUDE_MODEL) -> Optional[Dict]:
+    """Extrahiert alle Daten aus Text mit Claude (gibt striktes JSON zurueck)."""
+    if not HAS_ANTHROPIC or not ANTHROPIC_API_KEY:
+        print("Anthropic (Claude) nicht verfuegbar - ANTHROPIC_API_KEY fehlt?")
+        return None
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     # Text kuerzen wenn zu lang
     if len(text) > 60000:
         text = text[:60000]
 
     try:
-        response = client.chat.completions.create(
+        response = client.messages.create(
             model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Du bist ein Ernaehrungswissenschaftler. Extrahiere ALLE Daten praezise. Antworte NUR mit validem JSON."
-                },
-                {"role": "user", "content": EXTRACTION_PROMPT + text}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.1,
-            max_tokens=4000
+            max_tokens=4096,
+            # Der grosse, feste Extraktions-Prompt liegt im System-Block und wird
+            # (falls lang genug) ueber Requests hinweg gecacht -> guenstiger.
+            system=[{
+                "type": "text",
+                "text": EXTRACTION_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{"role": "user", "content": text}],
         )
     except Exception as e:
-        print(f"OpenAI API Fehler: {e}")
+        print(f"Claude API Fehler: {e}")
         return None
 
-    try:
-        return json.loads(response.choices[0].message.content)
-    except (json.JSONDecodeError, AttributeError, IndexError) as e:
-        print(f"JSON Parse Error: {e}")
-        return None
+    raw = "".join(b.text for b in response.content if b.type == "text")
+    return _parse_json(raw)
 
 
 # =============================================================================
@@ -1311,8 +1334,8 @@ def process_and_import(text: str, progress_callback=None) -> Dict:
     extracted = extract_with_ai(text)
 
     if not extracted:
-        return {"error": "AI extraction failed. The OpenAI request did not return valid data. "
-                         "Please check the OpenAI API key/quota and try again."}
+        return {"error": "AI extraction failed. The Claude request did not return valid data. "
+                         "Please check the Anthropic API key/quota and try again."}
 
     # Pruefen ob ueberhaupt etwas Verwertbares drin ist
     n_foods = len(extracted.get('foods', []) or [])
