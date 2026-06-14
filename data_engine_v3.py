@@ -636,7 +636,9 @@ def extract_with_ai(text: str, model: str = CLAUDE_MODEL) -> Optional[Dict]:
     try:
         response = client.messages.create(
             model=model,
-            max_tokens=4096,
+            # Grosszuegig: dichte Artikel (viele Foods) erzeugen viel JSON. Bei zu
+            # kleinem Limit wird die Ausgabe abgeschnitten -> ungueltiges JSON.
+            max_tokens=16000,
             # Der grosse, feste Extraktions-Prompt liegt im System-Block und wird
             # (falls lang genug) ueber Requests hinweg gecacht -> guenstiger.
             system=[{

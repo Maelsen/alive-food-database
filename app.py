@@ -863,12 +863,13 @@ elif page == "Upload":
                 st.error("PDF support is not installed (pdfplumber missing).")
                 extraction_failed = True
             else:
+                pdf_bytes = uploaded_file.getvalue()
+                total_pages = 0
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                        tmp.write(uploaded_file.getvalue())
+                        tmp.write(pdf_bytes)
                         tmp_path = tmp.name
 
-                    total_pages = 0
                     with pdfplumber.open(tmp_path) as pdf:
                         total_pages = len(pdf.pages)
                         for page in pdf.pages:
@@ -877,19 +878,28 @@ elif page == "Upload":
                                 text += page_text + "\n\n"
 
                     os.unlink(tmp_path)
-
-                    if not text.strip():
-                        st.error(
-                            f"No readable text found in this PDF ({total_pages} page(s)). "
-                            "It looks like a scanned or image-only PDF without a text layer, "
-                            "so there is nothing the AI can read.\n\n"
-                            "**What to do:** upload a text-based PDF, or copy the text into a "
-                            "`.txt` file and upload that instead."
-                        )
-                        extraction_failed = True
                 except Exception as e:
                     st.error(f"Could not read this PDF: {e}")
                     extraction_failed = True
+                    pdf_bytes = None
+
+                # Fallback: no text layer -> read the pages with vision OCR
+                # (handles scanned or photographed / image-only PDFs).
+                if not extraction_failed and not text.strip() and pdf_bytes:
+                    if HAS_FITZ and HAS_ANTHROPIC:
+                        ocr_status = st.empty()
+                        with st.spinner("This looks like a scanned PDF. Reading it with vision OCR, this can take a moment..."):
+                            text = ocr_pdf_with_vision(pdf_bytes, progress=lambda m: ocr_status.info(m))
+                        ocr_status.empty()
+                        if text.strip():
+                            st.info("Scanned PDF detected. I read it with vision OCR.")
+                    if not text.strip():
+                        st.error(
+                            f"No readable text found in this PDF ({total_pages} page(s)), even after "
+                            "trying vision OCR. The pages may be blank or too low-resolution. Try a "
+                            "clearer scan, a text-based PDF, or paste the text into a `.txt` file."
+                        )
+                        extraction_failed = True
         else:
             # TXT (oder andere Textdatei)
             try:
