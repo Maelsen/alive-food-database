@@ -496,11 +496,13 @@ EXTRACTION_PROMPT = """Du bist ein Ernaehrungswissenschaftler und Datenbank-Expe
 Analysiere den folgenden wissenschaftlichen Text und extrahiere ALLE relevanten Informationen.
 
 WICHTIG:
-- Extrahiere SO VIELE Details wie moeglich!
-- Jedes Feld das du fuellen kannst, fuellst du.
-- Lass KEIN Feld leer wenn du Informationen dazu findest!
+- Erfasse SO VIELE Foods, Claims und Naehrstoffe wie moeglich (Vollstaendigkeit!).
+- Pro Eintrag aber nur Felder ausgeben, fuer die es ECHTE Daten im Text gibt.
+- Felder ohne echte Information einfach WEGLASSEN - NICHT mit Platzhaltern, Schaetzungen
+  oder "Unbekannt"/"N/A" fuellen. Pflicht ist nur "name" (bzw. "food_name").
+- Das haelt die Ausgabe kompakt, damit auch grosse Dokumente komplett durchlaufen.
 
-Antworte NUR mit validem JSON in diesem EXAKTEN Format:
+Antworte NUR mit validem JSON in diesem EXAKTEN Format (Felder sind OPTIONAL ausser name):
 
 {
     "source": {
@@ -590,7 +592,7 @@ WICHTIGE REGELN:
 7. Bei Health Outcomes: Erstelle spezifische Outcomes (z.B. "Anxiety Reduction" statt nur "Mental Health")
 8. Die Zusammenfassung (summary) sollte erklaeren WARUM dieses Food gesund ist
 9. Bei evidence_strength: Waehle basierend auf Studientyp (RCT > Cohort > Observational > In-vitro)
-10. Wenn du dir nicht sicher bist, verwende "Medium" als Confidence
+10. Optionale Felder ohne echte Daten WEGLASSEN statt raten (auch confidence/category)
 11. quantified_effect: NUR ausfuellen wenn die Studie KONKRETE ZAHLEN nennt (z.B. "25% reduction", "30g/day for 8 weeks"). Wenn keine quantifizierbaren Daten -> leerer String ""
 
 TEXT ZUM ANALYSIEREN:
@@ -617,7 +619,50 @@ def _parse_json(raw: str) -> Optional[Dict]:
     try:
         return json.loads(s)
     except json.JSONDecodeError as e:
-        print(f"JSON Parse Error: {e}")
+        print(f"JSON Parse Error: {e} - versuche abgeschnittenes JSON zu retten...")
+        salvaged = _salvage_truncated_json(s if start == -1 else s[max(start, 0):])
+        if salvaged is not None:
+            print("  -> Teil-Daten gerettet (letztes unvollstaendiges Element verworfen).")
+        return salvaged
+
+
+def _salvage_truncated_json(s: str) -> Optional[Dict]:
+    """Rettet am Token-Limit abgeschnittenes JSON: verwirft das letzte unvollstaendige
+    Element und schliesst offene Klammern, sodass die vollstaendigen Eintraege erhalten
+    bleiben. Gibt None zurueck, wenn nichts Brauchbares gerettet werden kann."""
+    stack = []          # erwartete schliessende Klammern in Oeffnungsreihenfolge
+    in_string = False
+    escape = False
+    cut = None          # Position direkt nach dem letzten sicher geschlossenen Element
+    cut_stack = None    # noch offene Container an dieser Position
+    for i, ch in enumerate(s):
+        if escape:
+            escape = False
+            continue
+        if in_string:
+            if ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            stack.append("}")
+        elif ch == "[":
+            stack.append("]")
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            if stack:  # noch in einem aeusseren Container -> sicherer Schnittpunkt
+                cut = i + 1
+                cut_stack = list(stack)
+    if cut is None or not cut_stack:
+        return None
+    candidate = s[:cut] + "".join(reversed(cut_stack))
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
         return None
 
 
@@ -634,11 +679,11 @@ def extract_with_ai(text: str, model: str = CLAUDE_MODEL) -> Optional[Dict]:
         text = text[:60000]
 
     try:
-        response = client.messages.create(
+        # Dichte Dokumente (viele Foods) erzeugen sehr viel JSON. max_tokens grosszuegig
+        # (Haiku-Maximum 64k), und ab >16k verlangt das SDK Streaming, sonst HTTP-Timeout.
+        with client.messages.stream(
             model=model,
-            # Grosszuegig: dichte Artikel (viele Foods) erzeugen viel JSON. Bei zu
-            # kleinem Limit wird die Ausgabe abgeschnitten -> ungueltiges JSON.
-            max_tokens=16000,
+            max_tokens=64000,
             # Der grosse, feste Extraktions-Prompt liegt im System-Block und wird
             # (falls lang genug) ueber Requests hinweg gecacht -> guenstiger.
             system=[{
@@ -647,12 +692,17 @@ def extract_with_ai(text: str, model: str = CLAUDE_MODEL) -> Optional[Dict]:
                 "cache_control": {"type": "ephemeral"},
             }],
             messages=[{"role": "user", "content": text}],
-        )
+        ) as stream:
+            response = stream.get_final_message()
     except Exception as e:
         print(f"Claude API Fehler: {e}")
         return None
 
     raw = "".join(b.text for b in response.content if b.type == "text")
+    if response.stop_reason == "max_tokens":
+        # Selbst 64k gesprengt: JSON ist abgeschnitten. Wir retten so viel wie moeglich
+        # (vollstaendige Eintraege) statt alles zu verlieren.
+        print("WARN: Extraktion hat das Token-Limit erreicht - Dokument sehr gross, rette Teil-Daten.")
     return _parse_json(raw)
 
 
@@ -680,21 +730,24 @@ def extract_with_ai_from_images(images_b64, model: str = CLAUDE_MODEL) -> Option
     })
 
     try:
-        response = client.messages.create(
+        with client.messages.stream(
             model=model,
-            max_tokens=16000,
+            max_tokens=64000,
             system=[{
                 "type": "text",
                 "text": EXTRACTION_PROMPT,
                 "cache_control": {"type": "ephemeral"},
             }],
             messages=[{"role": "user", "content": content}],
-        )
+        ) as stream:
+            response = stream.get_final_message()
     except Exception as e:
         print(f"Claude Vision API Fehler: {e}")
         return None
 
     raw = "".join(b.text for b in response.content if b.type == "text")
+    if response.stop_reason == "max_tokens":
+        print("WARN: Vision-Extraktion hat das Token-Limit erreicht - rette Teil-Daten.")
     return _parse_json(raw)
 
 
@@ -1372,7 +1425,7 @@ def process_and_import(text: str, progress_callback=None) -> Dict:
     cache.load()
 
     if progress_callback:
-        progress_callback("Extracting data with AI (this can take 30-60 sec)...")
+        progress_callback("Extracting data with AI (large documents can take 1-2 min)...")
 
     # Mit KI extrahieren
     extracted = extract_with_ai(text)
