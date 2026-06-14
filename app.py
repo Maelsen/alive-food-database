@@ -49,7 +49,8 @@ except ImportError:
 
 # Data Engine v3 - Neue intelligente Import-Engine
 try:
-    from data_engine_v3 import process_and_import, DatabaseCache, extract_with_ai
+    from data_engine_v3 import (process_and_import, process_and_import_images,
+                                DatabaseCache, extract_with_ai)
     HAS_ENGINE_V3 = True
 except ImportError:
     HAS_ENGINE_V3 = False
@@ -682,62 +683,37 @@ def save_to_airtable(extracted_data):
 
 
 # =============================================================================
-# OCR FALLBACK - reads scanned / image-only PDFs via the Claude vision model
+# SCANNED PDFs - render pages to images so Claude can read them directly
 # =============================================================================
 
-def ocr_pdf_with_vision(pdf_bytes, max_pages=15, progress=None):
-    """Renders PDF pages to images and transcribes the text with a vision model.
+def render_pdf_to_images(pdf_bytes, max_pages=15):
+    """Renders PDF pages to base64 PNGs.
 
-    Used when a PDF has no extractable text layer (scanned or photographed pages).
-    Returns the transcribed text, or "" if it could not read anything.
+    Used when a PDF has no extractable text layer (scanned or photographed pages):
+    the page images are then sent to Claude vision for direct extraction.
+    Returns a list of base64-encoded PNG strings (empty list on failure).
     """
     if not HAS_FITZ:
-        return ""
-    key = get_secret("ANTHROPIC_API_KEY")
-    if not HAS_ANTHROPIC or not key:
-        return ""
-
+        return []
     try:
-        client = anthropic.Anthropic(api_key=key)
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as e:
-        print(f"OCR: could not open PDF: {e}")
-        return ""
+        print(f"Could not open PDF for rendering: {e}")
+        return []
 
-    pages_text = []
+    images = []
     n_pages = min(len(doc), max_pages)
     for i in range(n_pages):
-        if progress:
-            progress(f"Scanned PDF detected. Reading page {i + 1} of {n_pages} with vision OCR...")
         try:
-            pix = doc[i].get_pixmap(dpi=170)
-            img_b64 = base64.b64encode(pix.tobytes("png")).decode()
-            resp = client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=2000,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "image",
-                         "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
-                        {"type": "text",
-                         "text": "Transcribe ALL text from this document page exactly as written. "
-                                 "Output only the transcribed text, no commentary. "
-                                 "If the page contains no readable text, output nothing."},
-                    ]
-                }],
-            )
-            page_text = "".join(b.text for b in resp.content if b.type == "text").strip()
-            if page_text:
-                pages_text.append(page_text)
+            pix = doc[i].get_pixmap(dpi=160)
+            images.append(base64.b64encode(pix.tobytes("png")).decode())
         except Exception as e:
-            print(f"OCR: vision error on page {i + 1}: {e}")
-
+            print(f"Render error on page {i + 1}: {e}")
     try:
         doc.close()
     except Exception:
         pass
-    return "\n\n".join(pages_text)
+    return images
 
 
 # =============================================================================
@@ -856,6 +832,7 @@ elif page == "Upload":
 
         # Text extrahieren
         text = ""
+        pdf_images = None  # gesetzt bei gescannten/Bild-PDFs -> Vision-Extraktion
         extraction_failed = False
 
         if uploaded_file.name.lower().endswith('.pdf'):
@@ -883,21 +860,19 @@ elif page == "Upload":
                     extraction_failed = True
                     pdf_bytes = None
 
-                # Fallback: no text layer -> read the pages with vision OCR
-                # (handles scanned or photographed / image-only PDFs).
+                # No text layer -> render the pages so Claude vision can read them
+                # directly (handles scanned or photographed / image-only PDFs).
                 if not extraction_failed and not text.strip() and pdf_bytes:
                     if HAS_FITZ and HAS_ANTHROPIC:
-                        ocr_status = st.empty()
-                        with st.spinner("This looks like a scanned PDF. Reading it with vision OCR, this can take a moment..."):
-                            text = ocr_pdf_with_vision(pdf_bytes, progress=lambda m: ocr_status.info(m))
-                        ocr_status.empty()
-                        if text.strip():
-                            st.info("Scanned PDF detected. I read it with vision OCR.")
-                    if not text.strip():
+                        with st.spinner("This looks like a scanned PDF. Preparing the pages so the AI can read them..."):
+                            pdf_images = render_pdf_to_images(pdf_bytes)
+                        if pdf_images:
+                            st.info(f"Scanned PDF detected ({len(pdf_images)} page(s)). The AI will read the pages directly.")
+                    if not pdf_images:
                         st.error(
-                            f"No readable text found in this PDF ({total_pages} page(s)), even after "
-                            "trying vision OCR. The pages may be blank or too low-resolution. Try a "
-                            "clearer scan, a text-based PDF, or paste the text into a `.txt` file."
+                            f"Could not read this PDF ({total_pages} page(s)). The pages may be blank "
+                            "or unreadable. Try a clearer scan, a text-based PDF, or paste the text "
+                            "into a `.txt` file."
                         )
                         extraction_failed = True
         else:
@@ -910,12 +885,13 @@ elif page == "Upload":
                 st.error("This text file appears to be empty.")
                 extraction_failed = True
 
-        if text.strip():
-            st.success(f"{len(text)} characters extracted.")
-
-            # Preview
-            with st.expander("Text preview"):
-                st.text(text[:2000] + "..." if len(text) > 2000 else text)
+        if text.strip() or pdf_images:
+            if text.strip():
+                st.success(f"{len(text)} characters extracted.")
+                with st.expander("Text preview"):
+                    st.text(text[:2000] + "..." if len(text) > 2000 else text)
+            else:
+                st.success(f"{len(pdf_images)} page image(s) ready for the AI to read.")
 
             # ================================================================
             # NEUE DATA ENGINE V3 - Intelligenter Import
@@ -933,12 +909,16 @@ elif page == "Upload":
                         progress_container.info(message)
 
                     try:
-                        # Everything in one pass: Extract + Import
+                        # Everything in one pass: Extract + Import.
+                        # Scanned/image PDFs go through the vision path (page images),
+                        # everything else through the text path.
                         update_progress("Loading database (reading existing records)...")
                         time.sleep(0.5)
 
-                        update_progress("Extracting data with AI (this can take 30-60 sec)...")
-                        result = process_and_import(text, progress_callback=update_progress)
+                        if pdf_images:
+                            result = process_and_import_images(pdf_images, progress_callback=update_progress)
+                        else:
+                            result = process_and_import(text, progress_callback=update_progress)
 
                         progress_container.empty()
 

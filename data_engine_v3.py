@@ -656,6 +656,48 @@ def extract_with_ai(text: str, model: str = CLAUDE_MODEL) -> Optional[Dict]:
     return _parse_json(raw)
 
 
+def extract_with_ai_from_images(images_b64, model: str = CLAUDE_MODEL) -> Optional[Dict]:
+    """Extrahiert die Daten DIREKT aus Seitenbildern (gescannte / Bild-PDFs).
+
+    Wir lassen Claude das strukturierte JSON direkt aus den Bildern ziehen, statt
+    erst woertlich zu transkribieren - das ist robuster (eine woertliche Volltext-
+    Transkription kann vom Output-Content-Filter blockiert werden) und spart einen
+    Schritt.
+    """
+    if not HAS_ANTHROPIC or not ANTHROPIC_API_KEY or not images_b64:
+        return None
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    content = []
+    for b64 in images_b64[:15]:  # auf 15 Seiten begrenzen (Kosten/Zeit)
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": b64},
+        })
+    content.append({
+        "type": "text",
+        "text": "These are the page image(s) of a document. Read them and extract the data exactly as specified.",
+    })
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=16000,
+            system=[{
+                "type": "text",
+                "text": EXTRACTION_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{"role": "user", "content": content}],
+        )
+    except Exception as e:
+        print(f"Claude Vision API Fehler: {e}")
+        return None
+
+    raw = "".join(b.text for b in response.content if b.type == "text")
+    return _parse_json(raw)
+
+
 # =============================================================================
 # INTELLIGENT IMPORT - Baut die Datenbank brick by brick auf
 # =============================================================================
@@ -1358,6 +1400,41 @@ def process_and_import(text: str, progress_callback=None) -> Dict:
     # Extrahierte Daten fuer Anzeige hinzufuegen
     stats['extracted_data'] = extracted
 
+    return stats
+
+
+def process_and_import_images(images_b64, progress_callback=None) -> Dict:
+    """Wie process_and_import, aber liest die Daten direkt aus Seitenbildern
+    (gescannte / Bild-PDFs) via Claude Vision."""
+    if progress_callback:
+        progress_callback("Loading database (reading existing records)...")
+
+    cache = DatabaseCache()
+    cache.load()
+
+    if progress_callback:
+        progress_callback("Reading the document images with AI (this can take a moment)...")
+
+    extracted = extract_with_ai_from_images(images_b64)
+
+    if not extracted:
+        return {"error": "AI extraction from the document images failed. The Claude request did not "
+                         "return valid data. Please check the Anthropic API key/quota and try again."}
+
+    n_foods = len(extracted.get('foods', []) or [])
+    n_claims = len(extracted.get('claims', []) or [])
+    n_nutrients = len(extracted.get('nutrients', []) or [])
+    if n_foods == 0 and n_claims == 0 and n_nutrients == 0:
+        return {"error": "No foods, health claims or nutrient data could be read from this document. "
+                         "It may not contain nutrition/health content, or the scan may be too low-resolution.",
+                "extracted_data": extracted}
+
+    if progress_callback:
+        progress_callback("Importing into Airtable...")
+
+    importer = DataImporter(cache)
+    stats = importer.import_all(extracted)
+    stats['extracted_data'] = extracted
     return stats
 
 
