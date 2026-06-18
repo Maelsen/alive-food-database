@@ -716,6 +716,104 @@ def render_pdf_to_images(pdf_bytes, max_pages=15):
     return images
 
 
+def _extract_file_content(uploaded_file):
+    """Liest eine hochgeladene Datei und gibt (text, pdf_images, error) zurueck.
+
+    - text: extrahierter Text (TXT oder PDF mit Textlayer)
+    - pdf_images: Seitenbilder (gescannte / Bild-PDFs -> Vision-Pfad), sonst None
+    - error: Fehlermeldung als String, sonst None
+    """
+    if uploaded_file.name.lower().endswith('.pdf'):
+        if not HAS_PDF:
+            return "", None, "PDF support is not installed (pdfplumber missing)."
+        pdf_bytes = uploaded_file.getvalue()
+        text = ""
+        total_pages = 0
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+                tmp.write(pdf_bytes)
+                tmp_path = tmp.name
+            with pdfplumber.open(tmp_path) as pdf:
+                total_pages = len(pdf.pages)
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n\n"
+            os.unlink(tmp_path)
+        except Exception as e:
+            return "", None, f"Could not read this PDF: {e}"
+
+        # No text layer -> render the pages so Claude vision can read them directly
+        # (handles scanned or photographed / image-only PDFs).
+        if not text.strip():
+            pdf_images = None
+            if HAS_FITZ and HAS_ANTHROPIC:
+                pdf_images = render_pdf_to_images(pdf_bytes)
+            if not pdf_images:
+                return "", None, (
+                    f"Could not read this PDF ({total_pages} page(s)). The pages may be blank "
+                    "or unreadable. Try a clearer scan, a text-based PDF, or paste the text "
+                    "into a .txt file."
+                )
+            return "", pdf_images, None
+        return text, None, None
+
+    # TXT (oder andere Textdatei)
+    try:
+        text = uploaded_file.getvalue().decode('utf-8')
+    except UnicodeDecodeError:
+        text = uploaded_file.getvalue().decode('utf-8', errors='replace')
+    if not text.strip():
+        return "", None, "This text file appears to be empty."
+    return text, None, None
+
+
+def _show_import_result(result, uploaded_file):
+    """Zeigt das Import-Ergebnis einer einzelnen Datei (Statistiken + Details)."""
+    extracted = result.get('extracted_data', {})
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        sources_info = f"{result.get('sources_created', 0)} new"
+        if result.get('sources_updated', 0):
+            sources_info += f", {result['sources_updated']} updated"
+        st.metric("Sources", sources_info)
+    with col2:
+        foods_info = f"{result.get('interventions_created', 0)} new"
+        if result.get('interventions_updated', 0):
+            foods_info += f", {result['interventions_updated']} upd."
+        st.metric("Foods", foods_info)
+    with col3:
+        st.metric("Claims", result.get('claims_created', 0))
+    with col4:
+        st.metric("Nutrients", result.get('nutrients_created', 0))
+
+    if extracted.get('foods'):
+        with st.expander(f"Foods ({len(extracted['foods'])})"):
+            for food in extracted['foods']:
+                st.markdown(f"**{food.get('name')}** ({food.get('category', 'N/A')})")
+                if food.get('summary'):
+                    st.write(f"  {food['summary'][:200]}...")
+
+    if extracted.get('claims'):
+        with st.expander(f"Health claims ({len(extracted['claims'])})"):
+            for claim in extracted['claims']:
+                st.markdown(f"**{claim.get('food_name')}** -> {', '.join(claim.get('outcome_names', []))}")
+                st.write(f"  \"{claim.get('claim_text', '')[:150]}...\"")
+
+    if extracted.get('nutrients'):
+        with st.expander(f"Nutrients ({len(extracted['nutrients'])})"):
+            for ns in extracted['nutrients']:
+                st.write(f"**{ns.get('food_name')}:**")
+                for n in ns.get('nutrients', []):
+                    st.write(f"  - {n.get('name')}: {n.get('amount_per_100g')} {n.get('unit', 'g')}/100g")
+
+    if result.get('errors'):
+        with st.expander(f"Warnings ({len(result['errors'])})"):
+            for err in result['errors']:
+                st.warning(err)
+
+
 # =============================================================================
 # MAIN APP
 # =============================================================================
@@ -821,205 +919,86 @@ elif page == "Upload":
     <div class="alv-lead">Upload a PDF or text file. The AI extracts the foods, health claims and nutrient data and adds them to the database.</div>
     """, unsafe_allow_html=True)
 
-    uploaded_file = st.file_uploader(
-        "Upload file (PDF or TXT):",
+    uploaded_files = st.file_uploader(
+        "Upload files (PDF or TXT):",
         type=["pdf", "txt"],
-        help="The AI analyzes the file and extracts foods, health claims and nutrient data."
+        accept_multiple_files=True,
+        help="The AI analyzes each file and extracts foods, health claims and nutrient data. You can select several files at once for a bulk import."
     )
 
-    if uploaded_file:
-        st.info(f"File: {uploaded_file.name} ({uploaded_file.size / 1024:.1f} KB)")
+    if uploaded_files:
+        st.info(
+            f"{len(uploaded_files)} file(s) selected: "
+            + ", ".join(f.name for f in uploaded_files)
+        )
 
-        # Text extrahieren
-        text = ""
-        pdf_images = None  # gesetzt bei gescannten/Bild-PDFs -> Vision-Extraktion
-        extraction_failed = False
+        if not HAS_ENGINE_V3:
+            st.error("Data engine not available (data_engine_v3.py is missing).")
+        elif st.button(f"Analyze & import {len(uploaded_files)} file(s) to Airtable", type="primary"):
+            progress_container = st.empty()
+            n_files = len(uploaded_files)
+            totals = {"ok": 0, "failed": 0, "sources": 0, "foods": 0, "claims": 0, "nutrients": 0}
 
-        if uploaded_file.name.lower().endswith('.pdf'):
-            if not HAS_PDF:
-                st.error("PDF support is not installed (pdfplumber missing).")
-                extraction_failed = True
-            else:
-                pdf_bytes = uploaded_file.getvalue()
-                total_pages = 0
+            for idx, uploaded_file in enumerate(uploaded_files, 1):
+                prefix = f"[{idx}/{n_files}] {uploaded_file.name}"
+
+                def update_progress(message, _p=prefix):
+                    progress_container.info(f"{_p}: {message}")
+
+                # 1. Inhalt lesen (Text-PDF, gescanntes PDF -> Bilder, oder TXT)
+                text, pdf_images, err = _extract_file_content(uploaded_file)
+                if err:
+                    totals["failed"] += 1
+                    with st.expander(f"{uploaded_file.name} - could not read", expanded=True):
+                        st.error(err)
+                    continue
+
+                # 2. Extrahieren + importieren
                 try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                        tmp.write(pdf_bytes)
-                        tmp_path = tmp.name
-
-                    with pdfplumber.open(tmp_path) as pdf:
-                        total_pages = len(pdf.pages)
-                        for page in pdf.pages:
-                            page_text = page.extract_text()
-                            if page_text:
-                                text += page_text + "\n\n"
-
-                    os.unlink(tmp_path)
+                    update_progress("loading database...")
+                    if pdf_images:
+                        result = process_and_import_images(pdf_images, progress_callback=update_progress)
+                    else:
+                        result = process_and_import(text, progress_callback=update_progress)
                 except Exception as e:
-                    st.error(f"Could not read this PDF: {e}")
-                    extraction_failed = True
-                    pdf_bytes = None
-
-                # No text layer -> render the pages so Claude vision can read them
-                # directly (handles scanned or photographed / image-only PDFs).
-                if not extraction_failed and not text.strip() and pdf_bytes:
-                    if HAS_FITZ and HAS_ANTHROPIC:
-                        with st.spinner("This looks like a scanned PDF. Preparing the pages so the AI can read them..."):
-                            pdf_images = render_pdf_to_images(pdf_bytes)
-                        if pdf_images:
-                            st.info(f"Scanned PDF detected ({len(pdf_images)} page(s)). The AI will read the pages directly.")
-                    if not pdf_images:
-                        st.error(
-                            f"Could not read this PDF ({total_pages} page(s)). The pages may be blank "
-                            "or unreadable. Try a clearer scan, a text-based PDF, or paste the text "
-                            "into a `.txt` file."
-                        )
-                        extraction_failed = True
-        else:
-            # TXT (oder andere Textdatei)
-            try:
-                text = uploaded_file.getvalue().decode('utf-8')
-            except UnicodeDecodeError:
-                text = uploaded_file.getvalue().decode('utf-8', errors='replace')
-            if not text.strip():
-                st.error("This text file appears to be empty.")
-                extraction_failed = True
-
-        if text.strip() or pdf_images:
-            if text.strip():
-                st.success(f"{len(text)} characters extracted.")
-                with st.expander("Text preview"):
-                    st.text(text[:2000] + "..." if len(text) > 2000 else text)
-            else:
-                st.success(f"{len(pdf_images)} page image(s) ready for the AI to read.")
-
-            # ================================================================
-            # NEUE DATA ENGINE V3 - Intelligenter Import
-            # ================================================================
-
-            if not HAS_ENGINE_V3:
-                st.error("Data engine not available (data_engine_v3.py is missing).")
-            else:
-                # Process and import in one step!
-                if st.button("Analyze & import to Airtable", type="primary"):
-                    progress_container = st.empty()
-                    status_container = st.container()
-
-                    def update_progress(message):
-                        progress_container.info(message)
-
-                    try:
-                        # Everything in one pass: Extract + Import.
-                        # Scanned/image PDFs go through the vision path (page images),
-                        # everything else through the text path.
-                        update_progress("Loading database (reading existing records)...")
-                        time.sleep(0.5)
-
-                        if pdf_images:
-                            result = process_and_import_images(pdf_images, progress_callback=update_progress)
-                        else:
-                            result = process_and_import(text, progress_callback=update_progress)
-
-                        progress_container.empty()
-
-                        if "error" in result:
-                            st.error(result['error'])
-                        else:
-                            st.success("Analysis and import completed.")
-
-                            # Show extracted data
-                            extracted = result.get('extracted_data', {})
-
-                            st.markdown('<div class="alv-kicker" style="margin-top:8px">What was added</div>', unsafe_allow_html=True)
-
-                            # Statistics
-                            col1, col2, col3, col4 = st.columns(4)
-                            with col1:
-                                sources_info = f"{result.get('sources_created', 0)} new"
-                                if result.get('sources_updated', 0):
-                                    sources_info += f", {result['sources_updated']} updated"
-                                st.metric("Sources", sources_info)
-                            with col2:
-                                foods_info = f"{result.get('interventions_created', 0)} new"
-                                if result.get('interventions_updated', 0):
-                                    foods_info += f", {result['interventions_updated']} upd."
-                                st.metric("Foods", foods_info)
-                            with col3:
-                                st.metric("Claims", result.get('claims_created', 0))
-                            with col4:
-                                st.metric("Nutrients", result.get('nutrients_created', 0))
-
-                            # Second row
-                            col1, col2, col3, col4 = st.columns(4)
-                            with col1:
-                                st.metric("Outcomes", result.get('outcomes_created', 0))
-                            with col2:
-                                st.metric("Profiles", result.get('profiles_created', 0))
-
-                            # Show details
-                            st.divider()
-
-                            # Source Details
-                            if extracted.get('source'):
-                                with st.expander("Source details", expanded=True):
-                                    src = extracted['source']
-                                    st.write(f"**Title:** {src.get('title', 'N/A')}")
-                                    st.write(f"**Type:** {src.get('type', 'N/A')}")
-                                    st.write(f"**Authors:** {src.get('authors', 'N/A')}")
-                                    st.write(f"**Year:** {src.get('year', 'N/A')}")
-                                    st.write(f"**Journal:** {src.get('journal', 'N/A')}")
-
-                            # Foods Details
-                            if extracted.get('foods'):
-                                with st.expander(f"Foods ({len(extracted['foods'])})", expanded=True):
-                                    for food in extracted['foods']:
-                                        st.markdown(f"**{food.get('name')}** ({food.get('category', 'N/A')})")
-                                        if food.get('summary'):
-                                            st.write(f"  {food['summary'][:200]}...")
-                                        if food.get('example_serving'):
-                                            st.write(f"  Serving: {food['example_serving']}")
-                                        st.write("")
-
-                            # Claims Details
-                            if extracted.get('claims'):
-                                with st.expander(f"Health claims ({len(extracted['claims'])})", expanded=True):
-                                    for claim in extracted['claims']:
-                                        st.markdown(f"**{claim.get('food_name')}** → {', '.join(claim.get('outcome_names', []))}")
-                                        st.write(f"  \"{claim.get('claim_text', '')[:150]}...\"")
-                                        st.write(f"  Evidence: {claim.get('evidence_strength', 'N/A')}")
-                                        st.write("")
-
-                            # Nutrients Details
-                            if extracted.get('nutrients'):
-                                with st.expander(f"Nutrients ({len(extracted['nutrients'])})", expanded=False):
-                                    for ns in extracted['nutrients']:
-                                        st.write(f"**{ns.get('food_name')}:**")
-                                        for n in ns.get('nutrients', []):
-                                            st.write(f"  - {n.get('name')}: {n.get('amount_per_100g')} {n.get('unit', 'g')}/100g")
-
-                            # Show errors if any
-                            if result.get('errors'):
-                                with st.expander(f"Warnings ({len(result['errors'])})", expanded=False):
-                                    for err in result['errors']:
-                                        st.warning(err)
-
-                            # JSON Download
-                            st.divider()
-                            st.download_button(
-                                "Download result as JSON",
-                                data=json.dumps(result, indent=2, ensure_ascii=False, default=str),
-                                file_name=f"import_result_{uploaded_file.name}.json",
-                                mime="application/json"
-                            )
-
-                            st.success("The database has been expanded. All links were created automatically.")
-
-                    except Exception as e:
-                        progress_container.empty()
-                        st.error(f"Critical error: {str(e)}")
+                    totals["failed"] += 1
+                    with st.expander(f"{uploaded_file.name} - error", expanded=True):
+                        st.error(f"Critical error: {e}")
                         import traceback
-                        with st.expander("Error details"):
-                            st.code(traceback.format_exc())
+                        st.code(traceback.format_exc())
+                    continue
+
+                # 3. Ergebnis anzeigen
+                if "error" in result:
+                    totals["failed"] += 1
+                    with st.expander(f"{uploaded_file.name} - {result['error'][:80]}", expanded=True):
+                        st.error(result['error'])
+                else:
+                    totals["ok"] += 1
+                    totals["sources"] += result.get('sources_created', 0)
+                    totals["foods"] += result.get('interventions_created', 0)
+                    totals["claims"] += result.get('claims_created', 0)
+                    totals["nutrients"] += result.get('nutrients_created', 0)
+                    with st.expander(f"{uploaded_file.name} - imported", expanded=(n_files == 1)):
+                        _show_import_result(result, uploaded_file)
+
+            progress_container.empty()
+
+            # Gesamt-Zusammenfassung ueber alle Dateien
+            st.divider()
+            st.markdown('<div class="alv-kicker">Bulk import summary</div>', unsafe_allow_html=True)
+            if totals["failed"] == 0:
+                st.success(f"All {totals['ok']} file(s) imported. The database has been expanded.")
+            elif totals["ok"] == 0:
+                st.error(f"None of the {n_files} file(s) could be imported. See the messages above.")
+            else:
+                st.warning(f"{totals['ok']} of {n_files} file(s) imported, {totals['failed']} failed. See details above.")
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Sources", totals["sources"])
+            c2.metric("Foods", totals["foods"])
+            c3.metric("Claims", totals["claims"])
+            c4.metric("Nutrients", totals["nutrients"])
 
 # =============================================================================
 # FOOTER
