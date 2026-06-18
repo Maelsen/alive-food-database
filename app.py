@@ -935,15 +935,19 @@ elif page == "Upload":
         if not HAS_ENGINE_V3:
             st.error("Data engine not available (data_engine_v3.py is missing).")
         elif st.button(f"Analyze & import {len(uploaded_files)} file(s) to Airtable", type="primary"):
-            progress_container = st.empty()
             n_files = len(uploaded_files)
+            # Gesamt-Fortschritt ueber alle Dateien + laufender Phasen-Text, damit man
+            # bei einem Bulk-Import sieht wie weit es ist (nicht nur hoffend rumhocken).
+            progress_bar = st.progress(0.0, text=f"Starting import of {n_files} file(s)...")
             totals = {"ok": 0, "failed": 0, "sources": 0, "foods": 0, "claims": 0, "nutrients": 0}
 
             for idx, uploaded_file in enumerate(uploaded_files, 1):
-                prefix = f"[{idx}/{n_files}] {uploaded_file.name}"
+                base_frac = (idx - 1) / n_files
+                prefix = f"File {idx} of {n_files}: {uploaded_file.name}"
+                progress_bar.progress(base_frac, text=f"{prefix} — reading file...")
 
-                def update_progress(message, _p=prefix):
-                    progress_container.info(f"{_p}: {message}")
+                def update_progress(message, _p=prefix, _f=base_frac):
+                    progress_bar.progress(_f, text=f"{_p} — {message}")
 
                 # 1. Inhalt lesen (Text-PDF, gescanntes PDF -> Bilder, oder TXT)
                 text, pdf_images, err = _extract_file_content(uploaded_file)
@@ -982,7 +986,7 @@ elif page == "Upload":
                     with st.expander(f"{uploaded_file.name} - imported", expanded=(n_files == 1)):
                         _show_import_result(result, uploaded_file)
 
-            progress_container.empty()
+            progress_bar.progress(1.0, text=f"Done — processed {n_files} file(s).")
 
             # Gesamt-Zusammenfassung ueber alle Dateien
             st.divider()
